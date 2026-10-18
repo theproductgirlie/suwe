@@ -86,8 +86,14 @@ async function playCourse(shots = false) {
 
 const g = (path) => ev(`__suwe.game.${path}`);
 
+// Menu -> Play -> 2 players, both people -> Start.
+await ev(`document.getElementById('play').click()`);
+await sleep(200);
+await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`); // seat 2: Person
+await ev(`document.querySelector('#setup .big').click()`);
 await sleep(500);
 check((await phase()) === "throw" && (await g("current")) === 0, "starts at throw phase, player 1");
+check((await g("players.length")) === 2 && (await g("players[1].ai")) === null, "two people");
 await b.shot("shots/s2-1-start.png");
 
 // 1. Player 1 throws into the wrong square: miss, turn passes to player 2, target kept.

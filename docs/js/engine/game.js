@@ -23,12 +23,16 @@ export const MAX_ANGLE = 1.2;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const round4 = (v) => Math.round(v * 1e4) / 1e4;
 
-export function createGame({ seed = 1, players = [{ id: "p1", name: "You" }] } = {}) {
+export function createGame({ seed = 1, players = [{ id: "p1", name: "Guest" }] } = {}) {
   return {
     rng: seedState(seed),
     players: players.map((p) => ({
       id: p.id,
       name: p.name,
+      color: p.color ?? null, // house colour
+      ai: p.ai ?? null, // null = a person, otherwise "easy" | "medium" | "hard"
+      look: p.look ?? null, // start.ng style fields, kept so a saved match can be redrawn
+      houses: [],
       target: 1,
       circuits: 0,
       stats: { throws: 0, hits: 0, mistakes: 0 },

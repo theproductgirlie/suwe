@@ -108,6 +108,7 @@ export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
     bend = 0, // 0..1, bending down to pick up the stone
     tilt = 0, // radians, losing balance
     hold = false, // stone in the right hand
+    ring = null, // house colour ring under the feet
   } = pose;
   const bob = bob0 + bend * 14;
   const female = st.body === "female";
@@ -119,6 +120,13 @@ export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
   ctx.scale(scale * facing, scale);
 
   if (shadow) ellipse(ctx, 0, 1, 22 - lift * 0.15, 6, "rgba(40,25,10,0.28)");
+  if (ring) {
+    ctx.strokeStyle = ring;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 1, 27, 8, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 
   ctx.translate(0, -lift);
 

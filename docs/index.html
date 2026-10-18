@@ -11,7 +11,7 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./css/style.css" />
   </head>
-  <body>
+  <body data-mode="menu">
     <canvas id="stage"></canvas>
 
     <div class="startng-card" id="player-card" hidden>
@@ -23,15 +23,18 @@
       <a id="player-sign-in" class="signin" hidden>Sign in</a>
     </div>
 
-    <div id="hud-top">
-      <div class="pill"><b id="target"></b><span id="turn"></span></div>
-      <div id="pips"></div>
+    <!-- In a match -->
+    <div class="play-only" id="hud">
+      <button id="menu-btn" type="button">Menu</button>
+      <div id="board"></div>
+      <div id="row3">
+        <div id="pips"></div>
+        <div id="hud-lives" class="lives"></div>
+      </div>
+      <div id="turn"></div>
     </div>
-    <button id="reset" type="button" aria-label="New game">New game</button>
-
     <div id="toast" role="status"></div>
-
-    <div id="hud-bottom">
+    <div class="play-only" id="hud-bottom">
       <p id="hint"></p>
       <div id="meter" hidden>
         <div id="zone"></div>
@@ -39,6 +42,23 @@
       </div>
       <button id="pickup" type="button" hidden>Pick up</button>
     </div>
+
+    <!-- Screens -->
+    <section id="menu" class="screen">
+      <h1>SUWE</h1>
+      <p class="tag">The Nigerian hopping game</p>
+      <button id="play" class="big" type="button">Play SUWE</button>
+      <div id="menu-lives" class="lives big-lives"></div>
+    </section>
+    <section id="setup" class="screen" hidden></section>
+    <section id="gate" class="screen" hidden>
+      <div class="card">
+        <h2 id="gate-title"></h2>
+        <p id="gate-text"></p>
+        <a id="gate-signin" class="big" hidden>Sign in with start.ng</a>
+        <button id="gate-back" class="link" type="button">Back</button>
+      </div>
+    </section>
 
     <script type="module" src="./js/main.js"></script>
   </body>
