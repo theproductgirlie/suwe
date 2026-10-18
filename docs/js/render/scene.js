@@ -2,7 +2,7 @@
 // The static backdrop is drawn once per resize into an offscreen canvas; only
 // the moving bits are redrawn each frame, to stay light on low-power phones.
 
-import { COLS, ROWS, START_POINT, squareRect, squareToCell } from "../engine/court.js";
+import { COLS, ROWS, cellToSquare, squareRect, squareToCell } from "../engine/court.js";
 import { drawCharacter, STOCK } from "./character.js";
 
 const NEAR_SCALE = 1;
@@ -210,46 +210,135 @@ export function createScene(canvas) {
     }
   }
 
-  function drawHighlight(square, time) {
-    const pulse = 0.5 + 0.5 * Math.sin(time / 280);
-    polyPath(ctx, cellPoly(squareRect(square)));
-    ctx.fillStyle = `rgba(255, 214, 10, ${0.25 + 0.2 * pulse})`;
+  // Screen px to court cell units (inverse of project).
+  function unproject(sx, sy) {
+    const f = (L.courtBottom - sy) / (L.courtBottom - L.courtTop);
+    const t = (1.15 - Math.sqrt(Math.max(0, 1.3225 - 0.6 * f))) / 0.3;
+    const scale = NEAR_SCALE + (FAR_SCALE - NEAR_SCALE) * f;
+    return { x: (sx - L.cx) / (L.cellW * scale) + COLS / 2, y: t * ROWS };
+  }
+
+  // What a tap means: a square number, "start" (the ground below the court), or null.
+  function hitSquare(sx, sy) {
+    const { x, y } = unproject(sx, sy);
+    if (x >= 0 && x < COLS && y >= 0 && y < ROWS) return cellToSquare(Math.floor(x), Math.floor(y));
+    if (y < 0 && y > -2.5 && x > -0.5 && x < COLS + 0.5) return "start";
+    return null;
+  }
+
+  function pulse(time) {
+    return 0.5 + 0.5 * Math.sin(time / 280);
+  }
+
+  function drawHint(hint, time) {
+    const k = pulse(time);
+    if (hint === "start") {
+      const pts = [project(0, -0.15), project(COLS, -0.15), project(COLS, -1.6), project(0, -1.6)];
+      polyPath(ctx, pts);
+      ctx.fillStyle = `rgba(255, 214, 10, ${0.18 + 0.15 * k})`;
+      ctx.fill();
+      ctx.setLineDash([10, 8]);
+      ctx.strokeStyle = `rgba(255, 170, 0, ${0.6 + 0.4 * k})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const c = project(COLS / 2, -1.25);
+      ctx.font = `800 ${L.cellW * 0.17}px "Trebuchet MS", system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(120,70,0,0.75)";
+      ctx.fillText("HOME", c.x, c.y);
+      return;
+    }
+    polyPath(ctx, cellPoly(squareRect(hint)));
+    ctx.fillStyle = `rgba(255, 214, 10, ${0.25 + 0.2 * k})`;
     ctx.fill();
-    ctx.strokeStyle = `rgba(255, 170, 0, ${0.6 + 0.4 * pulse})`;
+    ctx.strokeStyle = `rgba(255, 170, 0, ${0.6 + 0.4 * k})`;
     ctx.lineWidth = 4;
     ctx.stroke();
   }
 
-  function drawStone(x, y) {
-    const p = project(x, y);
+  function drawFlash(flash, time) {
+    const age = (time - flash.t0) / flash.dur;
+    if (age < 0 || age > 1) return;
+    polyPath(ctx, cellPoly(squareRect(flash.square)));
+    ctx.fillStyle = flash.color.replace("A", String(0.55 * (1 - age)));
+    ctx.fill();
+  }
+
+  function drawStone(st) {
+    const p = project(st.x, st.y);
     const r = L.cellW * 0.075 * p.scale;
+    const h = st.h ?? 0;
     ctx.fillStyle = "rgba(40,25,10,0.3)";
     ctx.beginPath();
     ctx.ellipse(p.x + r * 0.2, p.y + r * 0.5, r * 1.1, r * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#6c757d";
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y, r, r * 0.8, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, p.y - h, r, r * 0.8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.beginPath();
-    ctx.ellipse(p.x - r * 0.3, p.y - r * 0.3, r * 0.35, r * 0.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x - r * 0.3, p.y - h - r * 0.3, r * 0.35, r * 0.2, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  /**
-   * @param {object} state { target, players:[{style, x, y}] }
-   */
-  function draw(state, time) {
-    ctx.drawImage(bg, 0, 0, W, H);
-    if (state.target) drawHighlight(state.target, time);
-    if (state.stone) drawStone(state.stone.x, state.stone.y);
-    const bob = Math.sin(time / 380) * 1.5;
-    for (const p of state.players) {
-      const pos = project(p.x, p.y);
-      drawCharacter(ctx, p.style, pos.x, pos.y, charScale(p.y), { back: true, bob, ...p.pose });
-    }
+  // Slingshot band, and a dotted line to where the stone would land.
+  function drawAim(aim, time) {
+    const from = project(aim.origin.x, aim.origin.y);
+    ctx.strokeStyle = "rgba(90,50,10,0.8)";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(aim.fx, aim.fy);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.beginPath();
+    ctx.arc(aim.fx, aim.fy, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    const to = project(aim.land.x, aim.land.y);
+    ctx.setLineDash([2, 9]);
+    ctx.strokeStyle = "rgba(60,30,0,0.85)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const r = L.cellW * 0.1 * to.scale * (1 + 0.1 * pulse(time));
+    ctx.strokeStyle = "#e03131";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(to.x, to.y, r, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(to.x - r * 0.5, to.y);
+    ctx.lineTo(to.x + r * 0.5, to.y);
+    ctx.moveTo(to.x, to.y - r * 0.35);
+    ctx.lineTo(to.x, to.y + r * 0.35);
+    ctx.stroke();
   }
 
-  return { resize, draw, project, START_POINT };
+  /**
+   * view: {
+   *   hint: square | "start" | null, stone: {x,y,h}|null, flash, aim,
+   *   hero: { x, y, style, pose }   // court position, plus drawCharacter pose
+   * }
+   */
+  function draw(view, time) {
+    ctx.drawImage(bg, 0, 0, W, H);
+    if (view.hint) drawHint(view.hint, time);
+    if (view.flash) drawFlash(view.flash, time);
+    if (view.stone) drawStone(view.stone);
+    if (view.aim) drawAim(view.aim, time);
+    const h = view.hero;
+    const pos = project(h.x, h.y);
+    const cs = charScale(Math.max(0, h.y));
+    drawCharacter(ctx, h.style, pos.x, pos.y, cs, h.pose);
+  }
+
+  return { resize, draw, project, unproject, hitSquare };
 }

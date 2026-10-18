@@ -61,3 +61,157 @@ body {
 .startng-card .signin[hidden] {
   display: none;
 }
+
+#hud-top {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+.pill {
+  padding: 6px 14px;
+  border-radius: 14px;
+  background: rgba(41, 42, 35, 0.88);
+  color: #fffefa;
+  text-align: right;
+}
+.pill b {
+  display: block;
+  font-size: 18px;
+}
+.pill span {
+  font-size: 11px;
+  opacity: 0.75;
+}
+#pips {
+  display: grid;
+  grid-template-columns: repeat(6, 18px);
+  gap: 3px;
+}
+#pips i {
+  display: block;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #5c3a21;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  text-align: center;
+}
+#pips i.done {
+  background: #2f9e44;
+  color: #fff;
+}
+#pips i.now {
+  background: #fcc419;
+  color: #4a2f00;
+}
+
+#reset {
+  position: fixed;
+  top: 66px;
+  left: 10px;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #5c3a21;
+  font: 700 12px "Trebuchet MS", system-ui, sans-serif;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  top: 22%;
+  transform: translate(-50%, 8px);
+  max-width: 82vw;
+  padding: 10px 18px;
+  border-radius: 18px;
+  background: #fffefa;
+  color: #3b2a14;
+  font: 800 20px "Trebuchet MS", system-ui, sans-serif;
+  text-align: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+#toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+#hud-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+#hint {
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: rgba(41, 42, 35, 0.8);
+  color: #fffefa;
+  font-size: 13px;
+  text-align: center;
+}
+#meter {
+  position: relative;
+  width: min(84vw, 360px);
+  height: 22px;
+  border-radius: 11px;
+  background: #c92a2a;
+  border: 3px solid #fffefa;
+  overflow: hidden;
+}
+#meter[hidden],
+#pickup[hidden] {
+  display: none;
+}
+#meter.locked {
+  opacity: 0.45;
+}
+#zone {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  background: #40c057;
+}
+#needle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 6px;
+  margin-left: -3px;
+  border-radius: 3px;
+  background: #212529;
+  left: 50%;
+}
+#pickup {
+  pointer-events: auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 44px;
+  background: #f59f00;
+  color: #3b2a14;
+  font: 800 20px "Trebuchet MS", system-ui, sans-serif;
+  box-shadow: 0 4px 0 #b36b00;
+}
+#pickup:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #b36b00;
+}

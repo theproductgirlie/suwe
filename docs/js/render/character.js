@@ -98,12 +98,24 @@ function roundRect(ctx, x, y, w, h, r, fill) {
  */
 export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
   const st = normalizeStyle(style);
-  const { back = false, facing = 1, bob = 0, lift = 0, oneLeg = false, shadow = true } = pose;
+  const {
+    back = false,
+    facing = 1,
+    bob: bob0 = 0,
+    lift = 0,
+    oneLeg = false,
+    shadow = true,
+    bend = 0, // 0..1, bending down to pick up the stone
+    tilt = 0, // radians, losing balance
+    hold = false, // stone in the right hand
+  } = pose;
+  const bob = bob0 + bend * 14;
   const female = st.body === "female";
   const skinDark = shade(st.skinColor, -28);
 
   ctx.save();
   ctx.translate(x, y);
+  ctx.rotate(tilt);
   ctx.scale(scale * facing, scale);
 
   if (shadow) ellipse(ctx, 0, 1, 22 - lift * 0.15, 6, "rgba(40,25,10,0.28)");
@@ -163,12 +175,15 @@ export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
   ctx.lineWidth = 7;
   ctx.strokeStyle = st.skinColor;
   const armSwing = oneLeg ? 10 : 0;
+  const handX = 24 - bend * 6;
+  const handY = (-54 + bob - armSwing) * (1 - bend) + -8 * bend;
   ctx.beginPath();
   ctx.moveTo(-14, -74 + bob);
   ctx.lineTo(-24, -54 + bob - armSwing * 0.3);
   ctx.moveTo(14, -74 + bob);
-  ctx.lineTo(24, -54 + bob - armSwing);
+  ctx.lineTo(handX, handY);
   ctx.stroke();
+  if (hold) ellipse(ctx, handX, handY, 5, 4, "#6c757d");
 
   // Torso
   roundRect(ctx, -15, -80 + bob, 30, 30, 8, st.primaryColor);

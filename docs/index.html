@@ -23,6 +23,23 @@
       <a id="player-sign-in" class="signin" hidden>Sign in</a>
     </div>
 
+    <div id="hud-top">
+      <div class="pill"><b id="target"></b><span id="turn"></span></div>
+      <div id="pips"></div>
+    </div>
+    <button id="reset" type="button" aria-label="New game">New game</button>
+
+    <div id="toast" role="status"></div>
+
+    <div id="hud-bottom">
+      <p id="hint"></p>
+      <div id="meter" hidden>
+        <div id="zone"></div>
+        <div id="needle"></div>
+      </div>
+      <button id="pickup" type="button" hidden>Pick up</button>
+    </div>
+
     <script type="module" src="./js/main.js"></script>
   </body>
 </html>
