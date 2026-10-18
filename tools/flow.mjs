@@ -207,6 +207,38 @@ await session("", async (b, ev) => {
   check((await ev(`__suwe.game.players[1].look.primaryColor`)) === (await ev(`__suwe.game.players[1].color`)), "computer's outfit matches its colour too");
 });
 
+// ---- 8b. Colours: taken ones say who has them; nothing changes for other players; never a repeat ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('4')).click()`);
+  await sleep(100);
+  const colours = () => ev(`[...document.querySelectorAll('.seat')].map(s => s.style.getPropertyValue('--c'))`);
+  const start = await colours();
+  check(new Set(start).size === 4, "4 players start with 4 different colours");
+  // Player 1 taps player 2's colour.
+  await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].click()`);
+  check(JSON.stringify(await colours()) === JSON.stringify(start), "tapping a taken colour changes nobody's colour");
+  check((await ev(`document.getElementById('toast').textContent`)) === "Player 2 has this colour", "it says which player has it");
+  check((await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].textContent`)) === "2", "taken dot shows the owner's number");
+  // Player 1 picks a free colour: only player 1 changes.
+  await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[5].click()`);
+  const after = await colours();
+  check(after[0] !== start[0] && after.slice(1).every((c, i) => c === start[i + 1]), "picking a free colour only changes that player");
+  // Hammer it: random clicks never make two players share a colour or touch another seat.
+  let bad = 0;
+  for (let n = 0; n < 80; n++) {
+    const seat = n % 4, dot = (n * 5 + 1) % 6;
+    const before = await colours();
+    await ev(`document.querySelectorAll('.seat')[${seat}].querySelectorAll('.dot')[${dot}].click()`);
+    const now = await colours();
+    if (new Set(now).size !== 4 || now.some((c, i) => i !== seat && c !== before[i])) bad++;
+  }
+  check(bad === 0, "80 random taps: no repeated colours, no other player disturbed");
+  const size = await ev(`document.querySelector('.dot').getBoundingClientRect().width`);
+  check(size >= 32, `colour dots are big enough to tap (${size}px)`);
+});
+
 // ---- 9. Wrong taps while hopping lose the turn and a heart ----
 await session("", async (b, ev) => {
   await ev(`document.getElementById('play').click()`);

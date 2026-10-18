@@ -17,7 +17,7 @@ function el(tag, cls, text) {
  * @param {HTMLElement} root
  * @param {{ getMe: () => {name:string, style:object|null}, onStart: (cfg) => void, onBack: () => void }} opts
  */
-export function createSetup(root, { getMe, onStart, onBack }) {
+export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
   let count = 2;
   let seats = [];
 
@@ -168,16 +168,21 @@ export function createSetup(root, { getMe, onStart, onBack }) {
 
     const dots = el("div", "dots");
     for (const color of COLORS) {
-      const taken = seats.some((s, j) => j !== i && s.color === color);
-      const d = el("button", `dot${seat.color === color ? " on" : ""}`);
+      // A colour another player holds shows their number and says so when tapped.
+      const owner = seats.findIndex((s, j) => j !== i && s.color === color);
+      const d = el("button", `dot${seat.color === color ? " on" : ""}${owner >= 0 ? " taken" : ""}`);
       d.type = "button";
       d.style.background = color;
-      d.disabled = taken;
-      d.setAttribute("aria-label", "House colour");
-      d.onclick = () => {
-        seat.color = color;
-        render();
-      };
+      d.setAttribute("aria-label", owner >= 0 ? `Colour used by player ${owner + 1}` : "House colour");
+      if (owner >= 0) {
+        d.textContent = String(owner + 1);
+        d.onclick = () => say(`Player ${owner + 1} has this colour`);
+      } else {
+        d.onclick = () => {
+          seat.color = color;
+          render();
+        };
+      }
       dots.append(d);
     }
     main.append(dots);
@@ -187,6 +192,11 @@ export function createSetup(root, { getMe, onStart, onBack }) {
   }
 
   function start() {
+    const used = new Set();
+    for (const seat of seats) {
+      if (used.has(seat.color)) seat.color = COLORS.find((c) => !used.has(c) && !seats.some((s) => s.color === c)) ?? seat.color;
+      used.add(seat.color);
+    }
     const players = seats.map((seat, i) => {
       const c = charOf(seat);
       const typed = seat.name.trim().slice(0, MAX_NAME);

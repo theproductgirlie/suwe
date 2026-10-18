@@ -368,19 +368,26 @@ body:not([data-mode="play"]) #stage {
 }
 .dots {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 .dot {
-  width: 26px;
-  height: 26px;
+  display: flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 3px solid transparent;
   border-radius: 50%;
+  color: #fff;
+  font: 800 13px "Trebuchet MS", system-ui, sans-serif;
 }
 .dot.on {
   border-color: #3b2a14;
+  box-shadow: 0 0 0 2px #fff inset;
 }
-.dot:disabled {
-  opacity: 0.2;
+.dot.taken {
+  opacity: 0.4;
 }
 #setup .big {
   margin-top: 6px;

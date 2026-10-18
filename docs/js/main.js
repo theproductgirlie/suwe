@@ -464,6 +464,7 @@ const setup = createSetup($("setup"), {
   getMe: () => ({ name: me.name, style: me.style, signedIn: me.signedIn }),
   onBack: () => mode("menu"),
   onStart: (cfg) => startMatch(cfg),
+  say,
 });
 
 function startMatch(cfg) {
