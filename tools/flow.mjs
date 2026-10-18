@@ -302,6 +302,8 @@ await session("", async (b, ev) => {
     window.__suwe.load(s);
   })()`);
   await sleep(500);
+  await b.tap(30, 400); // any real tap lets the browser start sound
+  await sleep(300);
   check((await ev(`document.getElementById('hint').textContent`)).startsWith("Ra Ile!"), "hint explains Ra Ile");
   const o = { x: 0.95, y: -0.6 };
   const dx = 1.5 - o.x, dy = 3.5 - o.y; // square 9 is the right column, 4th row up
@@ -316,6 +318,7 @@ await session("", async (b, ev) => {
   await sleep(1500);
   check((await ev(`document.getElementById('celebrate').hidden`)) === false, "celebration shows");
   check((await ev(`document.querySelector('#celebrate h2').textContent`)) === "You Don Buy House!", "it says 'You Don Buy House!'");
+  check((await ev(`__suwe.audio.played().includes('house')`)) === true, "the house fanfare plays");
   await b.shot("shots/h1-celebrate.png");
   await idle(ev);
   await sleep(300);
@@ -338,6 +341,8 @@ await session("", async (b, ev) => {
     window.__suwe.load(s);
   })()`);
   await sleep(400);
+  await b.tap(30, 400); // any real tap lets the browser start sound
+  await sleep(300);
   const drag = async (x, y) => {
     const o = { x: 0.95, y: -0.6 };
     const dx = x - o.x, dy = y - o.y;
@@ -361,6 +366,7 @@ await session("", async (b, ev) => {
   await idle(ev);
   await sleep(800);
   check((await ev(`document.getElementById('results').hidden`)) === false, "results screen shows");
+  check((await ev(`__suwe.audio.played().includes('drumroll') && __suwe.audio.played().includes('win')`)) === true, "tie-break drum roll and win jingle play");
   check((await ev(`document.getElementById('results-winner').textContent`)) === "Bola", "the closer stone (Bola) wins");
   check((await ev(`document.getElementById('results-why').textContent`)) === "Won the tie-break throw", "results say it was the tie-break");
   check((await ev(`document.querySelectorAll('#results-rows tr').length`)) === 2, "results list both players");
@@ -400,6 +406,51 @@ await session("&signedin", async (b, ev) => {
   check((await ev(`typeof window.__suwe`)) === "undefined", "no debug hook on start.ng");
   await ev(`document.getElementById('setup').hidden`);
   check((await ev(`document.getElementById('setup').hidden`)) === true, "nothing to play without signing in");
+  await b.close();
+}
+
+// ---- 14. Sound: starts on the first tap, music runs, toggles work and are remembered ----
+{
+  const b = await launch({ url: "http://localhost:5173/?debug" });
+  const ev = (js) => b.evaluate(js);
+  await sleep(400);
+  check((await ev(`__suwe.audio.state()`)) === "none", "no sound before the first tap (browser rule)");
+  const play = await ev(`(() => { const r = document.getElementById('play').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+  await b.tap(play.x, play.y); // a real touch counts as a user gesture
+  await sleep(1500);
+  check((await ev(`__suwe.audio.state()`)) === "running", "the first tap starts the audio engine");
+  const steps = await ev(`__suwe.audio.musicSteps()`);
+  check(steps >= 8, `music is playing (${steps} steps scheduled in 1.5s)`);
+  // Music off: scheduling stops.
+  await ev(`document.getElementById('setup').hidden || document.getElementById('menu-btn')`);
+  await ev(`document.querySelector('#setup .setup-back')?.click()`);
+  await sleep(200);
+  await ev(`document.getElementById('opt-music').click()`);
+  const s1 = await ev(`__suwe.audio.musicSteps()`);
+  await sleep(600);
+  const s2 = await ev(`__suwe.audio.musicSteps()`);
+  check(s1 === s2, "turning music off stops the beat");
+  check((await ev(`document.getElementById('opt-music').textContent`)) === "Music: Off", "button shows Music: Off");
+  await ev(`document.getElementById('opt-voice').click()`);
+  // Remembered after a reload.
+  await ev(`location.reload()`);
+  await sleep(1500);
+  check((await ev(`document.getElementById('opt-music').textContent`)) === "Music: Off", "Music: Off is remembered after reload");
+  check((await ev(`document.getElementById('opt-voice').textContent`)) === "Voice lines: On", "Voice lines: On is remembered too");
+  check((await ev(`document.getElementById('opt-sfx').textContent`)) === "Sound effects: On", "sound effects still on");
+  // In a match, the Sound button flips everything.
+  await ev(`document.getElementById('opt-music').click()`); // music back on
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  await ev(`document.getElementById('sound-btn').click()`);
+  check((await ev(`document.getElementById('sound-btn').textContent`)) === "Sound off", "in a match, Sound button turns everything off");
+  check((await ev(`__suwe.audio.prefs.music === false && __suwe.audio.prefs.sfx === false`)), "both music and effects are off");
+  await ev(`document.getElementById('sound-btn').click()`);
+  check((await ev(`document.getElementById('sound-btn').textContent`)) === "Sound on", "and back on");
+  check(b.problems.length === 0, "no console errors with sound running");
+  if (b.problems.length) console.log(b.problems.join("\n"));
   await b.close();
 }
 

@@ -2,6 +2,7 @@ import { createScene } from "./render/scene.js";
 import { DEFAULT_STYLE, normalizeStyle } from "./render/character.js";
 import { createDirector } from "./director.js";
 import { createSetup, levelStars } from "./setup.js";
+import { createAudio } from "./audio.js";
 import {
   createGame,
   applyMove,
@@ -45,6 +46,56 @@ const store = {
     }
   },
 };
+
+// --- sound --------------------------------------------------------------------------------
+const audio = createAudio(store.get("suwe.audio"), (v) => store.set("suwe.audio", v));
+// Browsers only allow sound after a tap, and count the moment the finger lifts or
+// the click lands (not a drag, and not the touch-down). Try on all of them.
+for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click", "keydown"]) {
+  addEventListener(type, () => audio.unlock(), { capture: true });
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    if (e.target.closest?.("button, a.big")) audio.sfx("ui");
+  },
+  true,
+);
+
+function renderAudioButtons() {
+  const p = audio.prefs;
+  const set = (id, label, on) => {
+    const b = $(id);
+    b.textContent = `${label}: ${on ? "On" : "Off"}`;
+    b.classList.toggle("off", !on);
+  };
+  set("opt-music", "Music", p.music);
+  set("opt-sfx", "Sound effects", p.sfx);
+  set("opt-voice", "Voice lines", p.voice);
+  const quiet = !p.music && !p.sfx;
+  $("sound-btn").textContent = quiet ? "Sound off" : "Sound on";
+  $("sound-btn").classList.toggle("off", quiet);
+}
+$("opt-music").addEventListener("click", () => {
+  audio.setMusic(!audio.prefs.music);
+  renderAudioButtons();
+});
+$("opt-sfx").addEventListener("click", () => {
+  audio.setSfx(!audio.prefs.sfx);
+  renderAudioButtons();
+});
+$("opt-voice").addEventListener("click", () => {
+  audio.setVoice(!audio.prefs.voice);
+  renderAudioButtons();
+});
+// In a match, one button turns everything on or off.
+$("sound-btn").addEventListener("click", () => {
+  const on = !audio.prefs.music && !audio.prefs.sfx;
+  audio.setMusic(on);
+  audio.setSfx(on);
+  renderAudioButtons();
+});
+renderAudioButtons();
 
 // --- who is playing on this phone (start.ng) --------------------------------------
 // Everyone plays as their start.ng character, so signing in is required on start.ng.
@@ -135,6 +186,7 @@ let toastTimer;
 function say(text) {
   const el = $("toast");
   el.textContent = text;
+  audio.speak(text);
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 1600);
@@ -154,6 +206,7 @@ const director = createDirector({
   onTurn: () => startTurn(),
   onOver: (result) => showResults(result),
   onHouse: (e) => celebrate(e),
+  sfx: (name) => audio.sfx(name),
 });
 const view = director.view;
 
@@ -557,6 +610,7 @@ if (params.has("debug") && !onStartNg()) {
     px: (x, y) => scene.project(x, y),
     zone: () => (game.phase === "throw" ? 1 : expectation(game).zone),
     spendLife,
+    audio,
     // Drop in a crafted match state (for tests).
     load(state) {
       game = state;

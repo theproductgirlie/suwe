@@ -26,7 +26,7 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse }) {
+export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, sfx = () => {} }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
@@ -117,8 +117,36 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
     };
   }
 
+  // Sounds ride along with the animation: at the start or the end of an event's first task.
+  const SOUND_START = {
+    throw: "throw",
+    backthrow: "throw",
+    tiebreak_throw: "throw",
+    turn: "turn",
+    course_done: "good",
+    circuit: "circuit",
+    house: "house",
+    tiebreak_start: "drumroll",
+    out: "out",
+    match_over: "win",
+  };
+  const SOUND_END = { hop: "hop", throw: "land", backthrow: "land", tiebreak_throw: "land" };
+
+  function tagSounds(e, before) {
+    const mine = queue.slice(before);
+    if (!mine.length) return;
+    if (e.type === "fail") {
+      // The fall: the tilt task is the second to last (a wait follows it).
+      mine[Math.max(0, mine.length - 2)].sfxStart = /line/.test(e.reason) ? "buzz" : "fail";
+      return;
+    }
+    if (SOUND_START[e.type]) mine[0].sfxStart = SOUND_START[e.type];
+    if (SOUND_END[e.type]) mine[0].sfxEnd = SOUND_END[e.type];
+  }
+
   function play(events) {
     for (const e of events) {
+      const before = queue.length;
       switch (e.type) {
         case "throw": {
           queue.push({
@@ -166,6 +194,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
               pose.bend = Math.sin(Math.PI * p);
               if (p >= 0.5 && !taken) {
                 taken = true;
+                sfx("pickup");
                 view.stone = null;
                 pose.hold = true;
               }
@@ -310,6 +339,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
           });
           break;
       }
+      tagSounds(e, before);
     }
   }
 
@@ -321,11 +351,13 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
         cur.t0 = carry ?? now;
         carry = null;
         cur.start?.();
+        if (cur.sfxStart) sfx(cur.sfxStart);
       }
       const p = Math.min(1, (now - cur.t0) / cur.dur);
       cur.run(p);
       if (p < 1) return;
       cur.end?.();
+      if (cur.sfxEnd) sfx(cur.sfxEnd);
       const finished = cur;
       cur = null;
       // Carry time over so a late frame does not stretch the whole sequence.

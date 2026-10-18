@@ -144,6 +144,13 @@ await idle();
 check((await g("players[0].target")) === 2 && (await g("current")) === 0, "player 1 advanced to 2 and kept the turn");
 check((await g("players[1].target")) === 2, "player 2 progress untouched");
 
+const played = await ev(`__suwe.audio.played()`);
+const heard = new Set(played);
+for (const name of ["throw", "land", "hop", "turn", "pickup", "good", "fail"]) {
+  check(heard.has(name), `gameplay played the "${name}" sound`);
+}
+check(played.length > 30, `${played.length} sound effects played during the run`);
+
 console.log(b.problems.length ? `PROBLEMS:\n${b.problems.join("\n")}` : "no console errors");
 await b.close();
 process.exit(fails.length || b.problems.length ? 1 : 0);

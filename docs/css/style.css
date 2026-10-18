@@ -122,6 +122,7 @@ body:not([data-mode="play"]) #stage {
   pointer-events: none;
 }
 
+#sound-btn,
 #menu-btn {
   position: fixed;
   z-index: 5;
@@ -608,7 +609,6 @@ body:not([data-mode="play"]) #stage {
 }
 
 #toast {
-  line-height: 1.15;
   position: fixed;
   left: 50%;
   top: 22%;
@@ -624,6 +624,7 @@ body:not([data-mode="play"]) #stage {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s, transform 0.2s;
+  line-height: 1.15;
 }
 #toast.show {
   opacity: 1;
@@ -801,4 +802,32 @@ tr.win td {
   to {
     transform: translateY(110vh) rotate(540deg);
   }
+}
+
+/* ---- sound controls ---- */
+#sound-btn {
+  right: 92px;
+}
+#sound-btn.off {
+  opacity: 0.6;
+}
+.audio-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.opt {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(255, 250, 240, 0.95);
+  color: var(--ink);
+  font: 700 14px var(--display);
+  box-shadow: 0 3px 10px rgba(84, 56, 31, 0.12);
+}
+.opt.off {
+  color: var(--ink2);
+  opacity: 0.65;
 }
