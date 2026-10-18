@@ -43,7 +43,9 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
   check((await ev(`document.querySelectorAll('.seat').length`)) === 2, "setup starts with 2 seats");
-  check((await ev(`document.querySelector('.seat input.name').value`)) === "Guest", "player 1 is named Guest, not You");
+  check((await ev(`document.querySelector('.seat .cname').textContent`)) === "Test Player", "player 1 is the (test) start.ng player, shown by name");
+  check((await ev(`document.querySelectorAll('.seat')[0].querySelector('input.name')`)) === null, "player 1's name can't be edited");
+  check(!(await ev(`document.getElementById('setup').innerText`)).includes("Guest"), "no 'Guest' anywhere on the setup screen");
   await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('4')).click()`);
   await sleep(100);
   check((await ev(`document.querySelectorAll('.seat').length`)) === 4, "can pick 4 players");
@@ -51,7 +53,7 @@ await session("", async (b, ev) => {
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
   const names = await ev(`__suwe.game.players.map(p => p.name)`);
-  check(names[0] === "Guest" && names[2] === "Bola", `names typed in setup reach the game (${names.join(", ")})`);
+  check(names[0] === "Test Player" && names[2] === "Bola" && names[1] === "Player 2", `names typed in setup reach the game (${names.join(", ")})`);
   const colors = await ev(`__suwe.game.players.map(p => p.color)`);
   check(new Set(colors).size === 4, "each player has a different house colour");
   check((await ev(`document.querySelectorAll('.chip-p').length`)) === 4, "scoreboard shows all 4 players");
@@ -69,7 +71,7 @@ await session("", async (b, ev) => {
   await badThrow(b, ev);
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 0 && (await ev(`__suwe.game.turnNo`)) === 2, "solo: after a miss it is still you, attempt 2");
-  check((await ev(`document.getElementById('toast').textContent`)) === "Oya, throw again", "solo wording after a miss");
+  check((await ev(`document.getElementById('toast').textContent`)) === "Throw again!", "solo wording after a miss");
   check((await ev(`document.getElementById('turn').textContent`)).startsWith("Attempt 2"), "attempt counter went up");
 });
 
@@ -110,32 +112,6 @@ await session("", async (b, ev) => {
   check((await ev(`document.getElementById('gate').hidden`)) === false, "no lives: Play is blocked");
   check((await ev(`document.getElementById('gate-title').textContent`)) === "No lives left", "gate says no lives left");
   check((await ev(`document.getElementById('setup').hidden`)) === true, "setup (solo too) is not reachable");
-});
-
-// ---- 5. Guest limit (only on with ?guestlimit locally) ----
-await session("&guestlimit", async (b, ev) => {
-  await ev(`document.getElementById('play').click()`);
-  await sleep(200);
-  await ev(`document.querySelector('#setup .big').click()`);
-  await sleep(300);
-  await ev(`document.getElementById('menu-btn').click()`);
-  await sleep(200);
-  await ev(`document.getElementById('play').click()`);
-  await sleep(200);
-  check((await ev(`document.getElementById('gate-title').textContent`)).includes("free match"), "guest: second match is blocked");
-});
-await session("", async (b, ev) => {
-  for (let k = 0; k < 2; k++) {
-    await ev(`document.getElementById('play').click()`);
-    await sleep(200);
-    await ev(`document.querySelector('#setup .big').click()`);
-    await sleep(300);
-    await ev(`document.getElementById('menu-btn').click()`);
-    await sleep(200);
-  }
-  await ev(`document.getElementById('play').click()`);
-  await sleep(200);
-  check((await ev(`document.getElementById('setup').hidden`)) === false, "locally the guest limit is off, so testing is never blocked");
 });
 
 // ---- 6. Hearts per match: solo runs out -> match over, saved hearts are 0, Play blocked ----
@@ -242,7 +218,7 @@ await session("", async (b, ev) => {
 await session("", async (b, ev) => {
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
-  const cpuTags = () => ev(`document.querySelectorAll('.tag.cpu').length`);
+  const cpuTags = () => ev(`document.querySelectorAll('.tag.level').length`);
   const toggles = () => ev(`document.querySelectorAll('.seg.track').length`);
   check((await cpuTags()) === 1 && (await toggles()) === 1, "2 players: seat 2 is a computer by default and can be switched");
   for (const n of [1, 3, 4]) {
@@ -390,6 +366,42 @@ await session("", async (b, ev) => {
   check((await ev(`document.querySelectorAll('#results-rows tr').length`)) === 2, "results list both players");
   await b.shot("shots/h4-results.png");
 });
+
+// ---- 12. Signed-in start.ng player keeps their own outfit; shows a sash in the house colour ----
+await session("&signedin", async (b, ev) => {
+  check((await ev(`document.getElementById('player-name').textContent`)) === "Abimbola", "card shows the start.ng character's name");
+  check((await ev(`document.getElementById('player-account').textContent`)) === "@abimbola", "card shows @account");
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  check((await ev(`document.querySelector('.seat .cname').textContent`)) === "Abimbola", "seat 1 uses the start.ng name");
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  check((await ev(`__suwe.game.players[0].look.primaryColor`)) === "#7048e8", "their own outfit colour is kept");
+  check((await ev(`__suwe.game.players[0].sash`)) === true, "the house colour shows as a sash instead");
+  check((await ev(`__suwe.game.players[0].name`)) === "Abimbola", "the match uses their start.ng name");
+});
+
+// ---- 13. On start.ng (mapped locally): not signed in means no playing, only a sign-in button ----
+{
+  const b = await launch({
+    url: "http://suwe-test.start.ng:5173/",
+    args: ["--host-resolver-rules=MAP suwe-test.start.ng 127.0.0.1"],
+  });
+  const ev = (js) => b.evaluate(js);
+  const text = () => ev(`document.getElementById('play').textContent`);
+  let t = "";
+  for (let i = 0; i < 60 && t !== "Sign in to play"; i++) {
+    await sleep(250);
+    t = await text();
+  }
+  check(t === "Sign in to play", `not signed in: the menu button says "${t}"`);
+  check((await ev(`document.getElementById('player-name').textContent`)) === "Not signed in", "the card says Not signed in");
+  check((await ev(`document.getElementById('player-sign-in').hidden`)) === false, "the card has a Sign in button");
+  check((await ev(`typeof window.__suwe`)) === "undefined", "no debug hook on start.ng");
+  await ev(`document.getElementById('setup').hidden`);
+  check((await ev(`document.getElementById('setup').hidden`)) === true, "nothing to play without signing in");
+  await b.close();
+}
 
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nall passed");
 process.exit(fails.length ? 1 : 0);

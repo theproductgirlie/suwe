@@ -12,9 +12,9 @@ import { nextFloat } from "./rng.js";
 // jump: chance of botching the big jump or the pickup.
 // hop:  chance of a slip on an ordinary hop.
 export const LEVELS = {
-  easy: { aim: 0.55, jump: 0.3, hop: 0.02 },
-  medium: { aim: 0.4, jump: 0.1, hop: 0.002 },
-  hard: { aim: 0.3, jump: 0.03, hop: 0 },
+  easy: { aim: 0.44, jump: 0.22, hop: 0.012 },
+  medium: { aim: 0.39, jump: 0.08, hop: 0.003 },
+  hard: { aim: 0.3, jump: 0.02, hop: 0 },
 };
 
 export function planMove(state, level) {

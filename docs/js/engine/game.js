@@ -30,7 +30,7 @@ const TIE_ROUNDS = 5;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const round4 = (v) => Math.round(v * 1e4) / 1e4;
 
-export function createGame({ seed = 1, players = [{ id: "p1", name: "Guest" }] } = {}) {
+export function createGame({ seed = 1, players = [{ id: "p1", name: "Player" }] } = {}) {
   return {
     rng: seedState(seed),
     players: players.map((p) => ({

@@ -1,7 +1,7 @@
 import { createScene } from "./render/scene.js";
 import { DEFAULT_STYLE, normalizeStyle } from "./render/character.js";
 import { createDirector } from "./director.js";
-import { createSetup } from "./setup.js";
+import { createSetup, levelStars } from "./setup.js";
 import {
   createGame,
   applyMove,
@@ -47,7 +47,33 @@ const store = {
 };
 
 // --- who is playing on this phone (start.ng) --------------------------------------
-let me = { signedIn: false, name: "Guest", account: null, style: DEFAULT_STYLE, face: null };
+// Everyone plays as their start.ng character, so signing in is required on start.ng.
+// Anywhere else (local testing) a test player stands in; ?signedin pretends to be a
+// signed-in start.ng player, to try the character-keeps-its-outfit path.
+const localPlayer = () =>
+  params.has("signedin")
+    ? {
+        signedIn: true,
+        name: "Abimbola",
+        account: "abimbola",
+        style: {
+          body: "female",
+          primaryColor: "#7048e8",
+          secondaryColor: "#0c6e5a",
+          skinColor: "#8d5524",
+          hairColor: "#17120f",
+          hair: "braids",
+          hat: "crown",
+          accessory: "earrings",
+        },
+        face: null,
+      }
+    : { signedIn: false, name: "Test Player", account: null, style: DEFAULT_STYLE, face: null };
+let me = onStartNg()
+  ? { signedIn: false, name: "Player", account: null, style: DEFAULT_STYLE, face: null }
+  : localPlayer();
+let meReady = !onStartNg(); // on start.ng we wait to hear who is playing
+const needsSignIn = () => onStartNg() && !me.signedIn;
 
 // --- lives -------------------------------------------------------------------------
 let lives = tickLives(normalizeLives(store.get("suwe.lives")), Date.now());
@@ -161,8 +187,8 @@ let announced = false;
 function startTurn() {
   applyLooks();
   const p = current();
-  if (solo()) say(announced ? "Oya, throw again" : "Oya, throw!");
-  else say(p.ai ? `${p.name} dey play...` : `Oya, ${p.name}, your turn`);
+  if (solo()) say(announced ? "Throw again!" : "Oya, throw!");
+  else say(p.ai ? `${p.name} is playing...` : `${p.name}, your turn!`);
   announced = true;
   refreshHud();
 }
@@ -200,7 +226,8 @@ function renderBoard() {
       if (p.ai) {
         const tag = document.createElement("em");
         tag.className = "ai";
-        tag.textContent = p.ai;
+        tag.textContent = levelStars(p.ai);
+        tag.title = `${p.ai} computer`;
         line.append(tag);
       }
       chip.append(name, line);
@@ -354,17 +381,12 @@ function mode(m) {
   renderLives(true);
 }
 
-const GUEST_MATCH_LIMIT = 1;
-// Enforced on start.ng, or locally with ?guestlimit, so local testing never locks you out.
-const guestLimitOn = () => onStartNg() || params.has("guestlimit");
-const guestMatchesUsed = () => store.get("suwe.guestMatches") ?? 0;
-
 // "You Don Buy House": a short celebration over the court.
 let celebrateTimer;
 function celebrate(e) {
   const box = $("celebrate");
   box.style.setProperty("--c", e.color ?? "#e03131");
-  $("celebrate-sub").textContent = `${e.name}: Na your house be this! Square ${e.square}`;
+  $("celebrate-sub").textContent = `${e.name} owns square ${e.square}`;
   const confetti = $("confetti");
   if (!confetti.children.length) {
     const colors = ["#f03e3e", "#fcc419", "#40c057", "#339af0", "#be4bdb", "#ff922b"];
@@ -440,21 +462,26 @@ $("results-again").addEventListener("click", () => $("play").click());
 $("results-menu").addEventListener("click", () => mode("menu"));
 $("gate-signin").href = signInUrl();
 
+// The menu button: sign in first when needed, then play.
+function renderPlayButton() {
+  const btn = $("play");
+  btn.disabled = !meReady;
+  btn.textContent = !meReady ? "Loading..." : needsSignIn() ? "Sign in to play" : "Play SUWE";
+  btn.classList.toggle("go", meReady && !needsSignIn());
+}
+
 $("play").addEventListener("click", () => {
+  if (!meReady) return;
+  if (needsSignIn()) {
+    location.href = signInUrl();
+    return;
+  }
   lives = tickLives(lives, Date.now());
   if (!canPlay(lives, Date.now())) {
     showGate(
       "No lives left",
       `You need a life to play. Your next life comes in ${fmt(msToNextLife(lives, Date.now()))}.`,
       false,
-    );
-    return;
-  }
-  if (!me.signedIn && guestLimitOn() && guestMatchesUsed() >= GUEST_MATCH_LIMIT) {
-    showGate(
-      "You don play your free match",
-      "Guests get one match. Sign in with start.ng to keep playing and get on the leaderboard.",
-      onStartNg(),
     );
     return;
   }
@@ -470,7 +497,6 @@ const setup = createSetup($("setup"), {
 });
 
 function startMatch(cfg) {
-  if (!me.signedIn) store.set("suwe.guestMatches", guestMatchesUsed() + 1);
   matchId++;
   clearTimeout(aiTimer);
   aiTimer = null;
@@ -558,22 +584,30 @@ const card = {
 card.signIn.href = signInUrl();
 
 function showPlayer(p) {
+  if (!onStartNg()) p = localPlayer();
+  meReady = true;
   me = { ...p, style: p.style ?? DEFAULT_STYLE };
-  card.name.textContent = p.name;
-  card.account.textContent = p.account ? `@${p.account}` : "Not signed in";
-  if (p.face) card.face.src = p.face;
-  card.face.hidden = !p.face;
-  card.initials.textContent = p.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("");
-  card.initials.hidden = Boolean(p.face);
-  card.signIn.hidden = p.signedIn || !onStartNg();
+  const unsigned = onStartNg() && !p.signedIn;
+  const name = unsigned ? "Not signed in" : p.name;
+  card.name.textContent = name;
+  card.account.textContent = p.account ? `@${p.account}` : unsigned ? "Sign in to play" : "Local test";
+  if (p.face && !unsigned) card.face.src = p.face;
+  card.face.hidden = !p.face || unsigned;
+  card.initials.textContent = unsigned
+    ? "?"
+    : name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0].toUpperCase())
+        .join("");
+  card.initials.hidden = !card.face.hidden;
+  card.signIn.hidden = !unsigned;
   card.root.hidden = false;
+  renderPlayButton();
 }
 
-// Plays fine without start.ng: show a guest until (and unless) it answers.
-showPlayer(me);
+// Until start.ng answers we show a waiting state; locally the test player is ready at once.
+if (onStartNg()) renderPlayButton();
+else showPlayer(me);
 watchPlayer(showPlayer);

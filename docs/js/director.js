@@ -14,10 +14,12 @@ const RED = "rgba(224,49,49,A)";
 const FAIL_LINES = {
   line_stone: "No match line o!",
   line: "No match line o!",
-  miss: "Try again",
-  stone_square: "Na there stone dey o!",
-  sequence: "Wrong way o!",
-  balance: "You don fall o!",
+  miss: "Try again!",
+  stone_square: "That's the stone's square!",
+  sequence: "Wrong square!",
+  balance: "You lost your balance!",
+  opponent_house: "That's someone's house!",
+  outside: "Stay inside the court!",
 };
 
 const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : stand(squareCenter(at)));
@@ -133,7 +135,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
               if (e.square) onFlash({ square: e.square, color: e.hit ? GREEN : RED });
             },
           });
-          if (e.hit) queue.push({ dur: 1, run() {}, end: () => say("Oya, hop!") });
+          if (e.hit) queue.push({ dur: 1, run() {}, end: () => say("Now hop!") });
           break;
         }
         case "hop":
@@ -170,7 +172,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
             },
             end() {
               pose.bend = 0;
-              say("Stone don enter hand!");
+              say("Stone in hand!");
             },
           });
           break;
@@ -228,7 +230,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
           queue.push({
             dur: 1000,
             run() {},
-            start: () => say("All 12 done! Ra Ile: throw over your shoulder"),
+            start: () => say("All 12 done! Now Ra Ile: throw over your shoulder"),
           });
           break;
         case "backthrow":
@@ -285,7 +287,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse })
           });
           break;
         case "out":
-          queue.push({ dur: 900, run() {}, start: () => say(`${e.name} don finish lives o!`) });
+          queue.push({ dur: 900, run() {}, start: () => say(`${e.name} has no hearts left`) });
           break;
         case "match_over":
           queue.push({

@@ -7,12 +7,12 @@ import { join } from "node:path";
 const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function launch({ width = 390, height = 844, url, scale = 2, mobile = true }) {
+export async function launch({ width = 390, height = 844, url, scale = 2, mobile = true, args = [] }) {
   const port = 9400 + Math.floor(process.pid % 500);
   const profile = mkdtempSync(join(tmpdir(), "suwe-chrome-"));
   const chrome = spawn(
     CHROME,
-    [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--headless=new", "--disable-gpu", "--no-first-run", "about:blank"],
+    [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--headless=new", "--disable-gpu", "--no-first-run", ...args, "about:blank"],
     { stdio: "ignore" },
   );
   let targets;

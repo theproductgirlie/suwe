@@ -1,4 +1,4 @@
-// The "Who dey play?" screen: how many players, then a card per seat with a
+// The "Who's playing?" screen: how many players, then a card per seat with a
 // name, a character and a house colour.
 //
 // A computer can only be the opponent in a 2-player match. With 1 player it is
@@ -6,6 +6,9 @@
 
 import { drawCharacter, normalizeStyle, STOCK } from "./render/character.js";
 import { LEVELS } from "./engine/ai.js";
+
+// The computer's level, shown as stars instead of a label.
+export const levelStars = (level) => ({ easy: "★☆☆", medium: "★★☆", hard: "★★★" })[level] ?? "★★☆";
 
 export const COLORS = ["#d6433b", "#3b78c9", "#e08a1e", "#7c4ddf", "#3c9e72", "#c93b6e"];
 const MAX_NAME = 14;
@@ -25,7 +28,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
   let count = 2;
   let seats = [];
 
-  // Characters a seat can wear: the signed-in/guest look first, then stock kids.
+  // Characters a seat can wear: the start.ng player first, then stock kids.
   const chars = () => [
     { id: "me", name: getMe().name, style: getMe().style },
     ...STOCK.map((c, i) => ({ id: `s${i}`, name: c.name, style: c.style })),
@@ -101,7 +104,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
 
     root.append(
       back,
-      el("h2", "setup-title", "Who dey play?"),
+      el("h2", "setup-title", "Who\u2019s playing?"),
       el("p", "setup-sub", "Choose your crew. Everybody gets their own colour."),
     );
 
@@ -149,16 +152,23 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     };
     head.append(face, el("span", "badge", `P${i + 1}`));
     if (i === 0) head.append(el("span", "tag", "You"));
-    else if (seat.kind === "computer") head.append(el("span", "tag cpu", "CPU"));
+    else if (seat.kind === "computer") {
+      const t = el("span", "tag level", levelStars(seat.level));
+      t.title = `${seat.level[0].toUpperCase()}${seat.level.slice(1)} computer`;
+      head.append(t);
+    }
 
     const body = el("div", "seat-body");
 
-    if (seat.kind === "person") {
+    if (i === 0) {
+      // Player 1 is the start.ng player: their own name, not editable.
+      body.append(el("label", "lbl", "Playing as"), el("div", "cname", getMe().name));
+    } else if (seat.kind === "person") {
       body.append(el("label", "lbl", "Name"));
       const input = el("input", "name");
       input.type = "text";
       input.maxLength = MAX_NAME;
-      input.placeholder = i === 0 ? "Guest" : `Guest ${i + 1}`;
+      input.placeholder = `Player ${i + 1}`;
       input.value = seat.name;
       input.autocomplete = "off";
       input.setAttribute("aria-label", `Player ${i + 1} name`);
@@ -177,7 +187,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
         b.onclick = () => {
           seat.kind = kind;
           if (kind === "computer" && seat.char === "me") nextChar(i);
-          if (kind === "person" && !seat.name) seat.name = `Guest ${i + 1}`;
+          if (kind === "person" && !seat.name) seat.name = `Player ${i + 1}`;
           render();
         };
         seg.append(b);
@@ -238,7 +248,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
       const typed = seat.name.trim().slice(0, MAX_NAME);
       return {
         id: `p${i + 1}`,
-        name: seat.kind === "computer" ? c.name : typed || (i === 0 ? getMe().name : `Guest ${i + 1}`),
+        name: i === 0 ? getMe().name : seat.kind === "computer" ? c.name : typed || `Player ${i + 1}`,
         color: seat.color,
         ai: seat.kind === "computer" ? seat.level : null,
         look: lookOf(seat),
