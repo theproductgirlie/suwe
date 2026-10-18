@@ -109,6 +109,7 @@ export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
     tilt = 0, // radians, losing balance
     hold = false, // stone in the right hand
     ring = null, // house colour ring under the feet
+    sash = null, // house colour sash, for players whose own outfit must stay as it is
   } = pose;
   const bob = bob0 + bend * 14;
   const female = st.body === "female";
@@ -195,6 +196,16 @@ export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
 
   // Torso
   roundRect(ctx, -15, -80 + bob, 30, 30, 8, st.primaryColor);
+  if (sash) {
+    ctx.fillStyle = sash;
+    ctx.beginPath();
+    ctx.moveTo(-15, -80 + bob);
+    ctx.lineTo(-4, -80 + bob);
+    ctx.lineTo(15, -54 + bob);
+    ctx.lineTo(4, -52 + bob);
+    ctx.closePath();
+    ctx.fill();
+  }
   if (st.accessory === "backpack" && back) {
     roundRect(ctx, -12, -78 + bob, 24, 24, 6, shade(st.secondaryColor, -10));
     ctx.fillStyle = shade(st.secondaryColor, 25);

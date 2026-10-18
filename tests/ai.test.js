@@ -65,3 +65,36 @@ test("a computer's turn is replayable from its recorded moves", () => {
   const b = applyMove({ ...g, rng }, move);
   assert.deepEqual(a, b);
 });
+
+test("the computer buys houses and breaks ties with the same moves a person would", () => {
+  // Let one computer play a long solo game: it should reach Ra Ile and claim houses.
+  let s = createGame({ seed: 4, players: [{ id: "c", name: "C", ai: "hard", lives: 100000 }] });
+  let rejected = 0;
+  for (let i = 0; i < 12000 && !s.over; i++) {
+    const r = playAiMove(s, "hard");
+    if (r.rejected) rejected++;
+    s = r.state;
+  }
+  assert.equal(rejected, 0);
+  assert.ok(s.players[0].houses.length > 0, "bought at least one house");
+  assert.equal(s.over, true, "a solo game ends once all 12 squares are claimed");
+  assert.deepEqual(s.result.winners, ["c"]);
+});
+
+test("hard picks the free square that gets in an opponent's way", () => {
+  const s = createGame({
+    seed: 2,
+    players: [
+      { id: "c", name: "C", ai: "hard" },
+      { id: "p", name: "P" },
+    ],
+  });
+  s.phase = "ra_ile";
+  s.players[1].target = 7; // the rival is already past squares 1..6
+  const { move } = planMove(s, "hard");
+  assert.equal(move.type, "backthrow");
+  // It aims at square 7 or later, not at 1 (which the rival has passed).
+  const x = 0.95 + Math.sin(move.angle) * move.power * 8;
+  const y = -0.6 + Math.cos(move.angle) * move.power * 8;
+  assert.ok(y > 5.5 - 0.6, `aimed up the court (y=${y.toFixed(2)})`);
+});

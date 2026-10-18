@@ -3,7 +3,7 @@
 // engine judges them. Mistakes come from the seeded generator in the game
 // state, so the same state and level always give the same move.
 
-import { applyMove, expectation, THROW_ORIGIN, MAX_RANGE } from "./game.js";
+import { applyMove, expectation, THROW_ORIGIN, MAX_RANGE, TIE_MARK } from "./game.js";
 import { squareCenter } from "./court.js";
 import { nextFloat } from "./rng.js";
 
@@ -28,13 +28,21 @@ export function planMove(state, level) {
   const e = expectation(state);
   let move;
 
-  if (e.kind === "throw") {
-    const c = squareCenter(e.target);
-    const x = c.x + (draw() * 2 - 1) * L.aim;
-    const y = c.y + (draw() * 2 - 1) * L.aim;
+  // A throw aimed at a point, with the level's wobble.
+  const aimAt = (type, c, spread) => {
+    const x = c.x + (draw() * 2 - 1) * spread;
+    const y = c.y + (draw() * 2 - 1) * spread;
     const dx = x - THROW_ORIGIN.x;
     const dy = y - THROW_ORIGIN.y;
-    move = { type: "throw", angle: Math.atan2(dx, dy), power: Math.hypot(dx, dy) / MAX_RANGE };
+    return { type, angle: Math.atan2(dx, dy), power: Math.hypot(dx, dy) / MAX_RANGE };
+  };
+
+  if (e.kind === "throw") {
+    move = aimAt("throw", squareCenter(e.target), L.aim);
+  } else if (e.kind === "backthrow") {
+    move = aimAt("backthrow", squareCenter(chooseHouse(state, level, draw)), L.aim);
+  } else if (e.kind === "tiebreak") {
+    move = aimAt("tiebreak", TIE_MARK, L.aim * 0.8);
   } else if (e.needsTiming) {
     const slip = draw() < L.jump;
     const mag = slip ? e.zone * (1.1 + draw() * 1.2) : e.zone * 0.7 * draw();
@@ -47,6 +55,19 @@ export function planMove(state, level) {
     move = { type: "hop", square: e.to, timing: 0 };
   }
   return { move, rng };
+}
+
+// Which free square to try to buy. Easy and medium take any; hard goes for the
+// square that gets in the most opponents' way (one they have yet to reach),
+// preferring squares nearer the start, which are easier to hit.
+function chooseHouse(state, level, draw) {
+  const free = [];
+  for (let n = 1; n <= 12; n++) if (!state.owners[n - 1]) free.push(n);
+  if (level !== "hard") return free[Math.floor(draw() * free.length)];
+  const me = state.players[state.current];
+  const rivals = state.players.filter((p) => p.id !== me.id && !p.out);
+  const score = (n) => rivals.filter((p) => p.target <= n).length;
+  return [...free].sort((a, b) => score(b) - score(a) || a - b)[0];
 }
 
 // Play the computer's next move. Returns what applyMove returns.

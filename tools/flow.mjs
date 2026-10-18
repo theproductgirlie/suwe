@@ -156,7 +156,8 @@ await session("", async (b, ev) => {
     await idle(ev);
   }
   await sleep(600);
-  check((await ev(`document.getElementById('gate-title').textContent`)) === "Match over", "out of hearts: match over screen");
+  check((await ev(`document.getElementById('results').hidden`)) === false, "out of hearts: results screen shows");
+  check((await ev(`document.getElementById('results-why').textContent`)) === "Everybody ran out of hearts", "results say why the match ended");
   check((await ev(`__suwe.lives.lives`)) === 0, "saved hearts are 0");
   await ev(`document.getElementById('gate-back').click()`);
   await sleep(200);
@@ -183,6 +184,139 @@ await session("", async (b, ev) => {
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 1, "player 2 keeps the turns, you are skipped");
   check((await ev(`__suwe.game.players[1].lives`)) === 4, "player 2 lost a heart for the miss");
+});
+
+// ---- 8. House colour changes the outfit (setup preview and in the game) ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  const torso = () => ev(`(() => { const c = document.querySelector('.seat-face').getContext('2d'); const d = c.getImageData(56, 62, 1, 1).data; return [d[0], d[1], d[2]]; })()`);
+  const near = (a, hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    return Math.abs(a[0] - (n >> 16)) + Math.abs(a[1] - ((n >> 8) & 255)) + Math.abs(a[2] - (n & 255)) < 30;
+  };
+  const first = await torso();
+  check(near(first, "#e03131"), `seat 1 outfit starts in its house colour (rgb ${first})`);
+  await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[4].click()`); // teal (blue is taken by seat 2)
+  await sleep(100);
+  const second = await torso();
+  check(near(second, "#0ca678"), `picking teal turns the preview outfit teal (rgb ${second})`);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  check((await ev(`__suwe.game.players[0].look.primaryColor`)) === "#0ca678", "the match uses the same outfit colour");
+  check((await ev(`__suwe.game.players[1].look.primaryColor`)) === (await ev(`__suwe.game.players[1].color`)), "computer's outfit matches its colour too");
+});
+
+// ---- 9. Wrong taps while hopping lose the turn and a heart ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`); // seat 2: Person
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  const aimed = async (x, y) => {
+    const o = { x: 0.95, y: -0.6 };
+    const dx = x - o.x, dy = y - o.y;
+    const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
+    const s = await ev("__suwe.px(0.95, -0.6)");
+    const len = power * 844 * 0.22;
+    const fx = s.x - Math.sin(angle) * len, fy = s.y + Math.cos(angle) * len;
+    await b.touch("touchStart", s.x, s.y);
+    await b.touch("touchMove", fx, fy);
+    await sleep(50);
+    await b.touch("touchEnd", fx, fy);
+  };
+  await aimed(0.5, 0.5);
+  await idle(ev);
+  check((await ev(`__suwe.game.phase`)) === "hop", "stone in square 1, hopping");
+  const wrong = await ev("__suwe.px(1.5, 4.5)"); // square 9; the right one is 2
+  await b.tap(wrong.x, wrong.y);
+  await idle(ev);
+  check((await ev(`__suwe.game.players[0].lives`)) === 4, "tapping a different number loses a heart");
+  check((await ev(`__suwe.game.current`)) === 1, "...and the turn");
+  // Player 2: throw, then tap off the court.
+  await aimed(0.5, 0.5);
+  await idle(ev);
+  await b.tap(8, 300);
+  await idle(ev);
+  check((await ev(`__suwe.game.players[1].lives`)) === 4, "tapping off the court loses a heart too");
+});
+
+// ---- 10. Ra Ile buys a house; the square shows the owner ----
+await session("", async (b, ev) => {
+  await ev(`(async () => {
+    const g = await import("./js/engine/game.js");
+    const s = g.createGame({ players: [
+      { id: "a", name: "Ada", color: "#e03131", look: null },
+      { id: "b", name: "Bola", color: "#1971c2", look: null },
+    ] });
+    s.phase = "ra_ile";
+    window.__suwe.load(s);
+  })()`);
+  await sleep(500);
+  check((await ev(`document.getElementById('hint').textContent`)).startsWith("Ra Ile!"), "hint explains Ra Ile");
+  const o = { x: 0.95, y: -0.6 };
+  const dx = 1.5 - o.x, dy = 3.5 - o.y; // square 9 is the right column, 4th row up
+  const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
+  const s = await ev("__suwe.px(0.95, -0.6)");
+  const len = power * 844 * 0.22;
+  const fx = s.x - Math.sin(angle) * len, fy = s.y + Math.cos(angle) * len;
+  await b.touch("touchStart", s.x, s.y);
+  await b.touch("touchMove", fx, fy);
+  await sleep(50);
+  await b.touch("touchEnd", fx, fy);
+  await sleep(1500);
+  check((await ev(`document.getElementById('celebrate').hidden`)) === false, "celebration shows");
+  check((await ev(`document.querySelector('#celebrate h2').textContent`)) === "You Don Buy House!", "it says 'You Don Buy House!'");
+  await b.shot("shots/h1-celebrate.png");
+  await idle(ev);
+  await sleep(300);
+  check((await ev(`JSON.stringify(__suwe.game.owners[8])`)) === '"a"', "square 9 now belongs to Ada");
+  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("⌂1"), "scoreboard shows 1 house");
+  await b.shot("shots/h2-house-on-court.png");
+});
+
+// ---- 11. A tied full board goes to the tie-break; the closer stone wins; results screen ----
+await session("", async (b, ev) => {
+  await ev(`(async () => {
+    const g = await import("./js/engine/game.js");
+    const s = g.createGame({ players: [
+      { id: "a", name: "Ada", color: "#e03131", look: null },
+      { id: "b", name: "Bola", color: "#1971c2", look: null },
+    ] });
+    for (let n = 1; n <= 5; n++) { s.owners[n - 1] = "a"; s.players[0].houses.push(n); }
+    for (let n = 6; n <= 11; n++) { s.owners[n - 1] = "b"; s.players[1].houses.push(n); }
+    s.phase = "ra_ile";
+    window.__suwe.load(s);
+  })()`);
+  await sleep(400);
+  const drag = async (x, y) => {
+    const o = { x: 0.95, y: -0.6 };
+    const dx = x - o.x, dy = y - o.y;
+    const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
+    const s = await ev("__suwe.px(0.95, -0.6)");
+    const len = power * 844 * 0.22;
+    const fx = s.x - Math.sin(angle) * len, fy = s.y + Math.cos(angle) * len;
+    await b.touch("touchStart", s.x, s.y);
+    await b.touch("touchMove", fx, fy);
+    await sleep(50);
+    await b.touch("touchEnd", fx, fy);
+  };
+  await drag(1.5, 0.5); // Ada buys the last square, 12: 6 v 6
+  await idle(ev);
+  await sleep(300);
+  check((await ev(`__suwe.game.phase`)) === "tiebreak", "6 v 6 starts the tie-break");
+  await b.shot("shots/h3-tiebreak.png");
+  await drag(2.0, 3.0); // Ada: a bit off the mark at (1, 3)
+  await idle(ev);
+  await drag(1.05, 3.0); // Bola: very close
+  await idle(ev);
+  await sleep(800);
+  check((await ev(`document.getElementById('results').hidden`)) === false, "results screen shows");
+  check((await ev(`document.getElementById('results-winner').textContent`)) === "Bola", "the closer stone (Bola) wins");
+  check((await ev(`document.getElementById('results-why').textContent`)) === "Won the tie-break throw", "results say it was the tie-break");
+  check((await ev(`document.querySelectorAll('#results-rows tr').length`)) === 2, "results list both players");
+  await b.shot("shots/h4-results.png");
 });
 
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nall passed");

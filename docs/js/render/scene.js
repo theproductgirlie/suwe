@@ -258,6 +258,56 @@ export function createScene(canvas) {
     ctx.stroke();
   }
 
+  // Owned squares: the owner's colour, a little house, and their name.
+  function drawHouses(houses) {
+    for (const h of houses) {
+      const r = squareRect(h.square);
+      polyPath(ctx, cellPoly(r));
+      ctx.fillStyle = h.color + "55";
+      ctx.fill();
+      ctx.strokeStyle = h.color;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      const c = project(r.x + 0.5, r.y + 0.5);
+      const u = L.cellW * 0.055 * c.scale;
+      // house glyph, in the corner so the number stays readable
+      const g = project(r.x + 0.16, r.y + 0.8);
+      ctx.fillStyle = h.color;
+      ctx.beginPath();
+      ctx.moveTo(g.x - u * 1.3, g.y);
+      ctx.lineTo(g.x, g.y - u * 1.5);
+      ctx.lineTo(g.x + u * 1.3, g.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(g.x - u * 0.9, g.y, u * 1.8, u * 1.3);
+      // owner's name, below it
+      const n = project(r.x + 0.5, r.y + 0.2);
+      ctx.font = `800 ${Math.max(10, L.cellW * 0.12 * n.scale)}px "Trebuchet MS", system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.strokeText(h.name, n.x, n.y);
+      ctx.fillStyle = h.color;
+      ctx.fillText(h.name, n.x, n.y);
+    }
+  }
+
+  // The red mark to throw at in a tie-break.
+  function drawMark(m, time) {
+    const p = project(m.x, m.y);
+    const r = L.cellW * 0.12 * p.scale * (1 + 0.08 * pulse(time));
+    ctx.strokeStyle = "#e03131";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, r, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.moveTo(p.x - r * 0.6, p.y - r * 0.4);
+    ctx.lineTo(p.x + r * 0.6, p.y + r * 0.4);
+    ctx.moveTo(p.x + r * 0.6, p.y - r * 0.4);
+    ctx.lineTo(p.x - r * 0.6, p.y + r * 0.4);
+    ctx.stroke();
+  }
+
   function drawFlash(flash, time) {
     const age = (time - flash.t0) / flash.dur;
     if (age < 0 || age > 1) return;
@@ -330,7 +380,9 @@ export function createScene(canvas) {
    */
   function draw(view, time) {
     ctx.drawImage(bg, 0, 0, W, H);
+    if (view.houses) drawHouses(view.houses);
     if (view.hint) drawHint(view.hint, time);
+    if (view.mark) drawMark(view.mark, time);
     if (view.flash) drawFlash(view.flash, time);
     if (view.stone) drawStone(view.stone);
     if (view.aim) drawAim(view.aim, time);
@@ -340,12 +392,17 @@ export function createScene(canvas) {
         back: true,
         bob: Math.sin(time / 500),
         ring: w.color,
+        sash: w.sash ? w.color : null,
       });
     }
     const h = view.hero;
     const pos = project(h.x, h.y);
     const cs = charScale(Math.max(0, h.y));
-    drawCharacter(ctx, h.style, pos.x, pos.y, cs, { ...h.pose, ring: h.color });
+    drawCharacter(ctx, h.style, pos.x, pos.y, cs, {
+      ...h.pose,
+      ring: h.color,
+      sash: h.sash ? h.color : null,
+    });
   }
 
   return { resize, draw, project, unproject, hitSquare };

@@ -1,6 +1,6 @@
 // The "how many players" screen: seats, names, characters and house colours.
 
-import { drawCharacter, STOCK } from "./render/character.js";
+import { drawCharacter, normalizeStyle, STOCK } from "./render/character.js";
 import { LEVELS } from "./engine/ai.js";
 
 export const COLORS = ["#e03131", "#1971c2", "#f08c00", "#7048e8", "#0ca678", "#d6336c"];
@@ -47,6 +47,13 @@ export function createSetup(root, { getMe, onStart, onBack }) {
   }
 
   const charOf = (seat) => chars().find((c) => c.id === seat.char);
+
+  // A seat's outfit takes the house colour, so the character matches the circle.
+  // The exception is a signed-in start.ng player, whose own look must stay
+  // recognisable: they get a sash in the house colour instead.
+  const keepsOwnOutfit = (seat) => seat.char === "me" && getMe().signedIn;
+  const lookOf = (seat) =>
+    keepsOwnOutfit(seat) ? charOf(seat).style : { ...normalizeStyle(charOf(seat).style), primaryColor: seat.color };
 
   function nextChar(i) {
     const list = chars();
@@ -105,7 +112,10 @@ export function createSetup(root, { getMe, onStart, onBack }) {
     face.title = "Tap to change character";
     const ctx = face.getContext("2d");
     ctx.translate(0.5, 0.5);
-    drawCharacter(ctx, charOf(seat).style, 56, 128, 0.95, { back: false });
+    drawCharacter(ctx, lookOf(seat), 56, 128, 0.95, {
+      back: false,
+      sash: keepsOwnOutfit(seat) ? seat.color : null,
+    });
     face.onclick = () => {
       nextChar(i);
       render();
@@ -185,7 +195,8 @@ export function createSetup(root, { getMe, onStart, onBack }) {
         name: seat.kind === "computer" ? c.name : typed || (i === 0 ? getMe().name : `Guest ${i + 1}`),
         color: seat.color,
         ai: seat.kind === "computer" ? seat.level : null,
-        look: c.style,
+        look: lookOf(seat),
+        sash: keepsOwnOutfit(seat),
       };
     });
     onStart({ players });

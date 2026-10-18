@@ -60,6 +60,32 @@
       </div>
     </section>
 
+    <section id="results" class="screen" hidden>
+      <div class="card wide">
+        <h2 id="results-title"></h2>
+        <p id="results-winner" class="winner"></p>
+        <p id="results-why" class="why"></p>
+        <table>
+          <thead>
+            <tr><th>Player</th><th>Houses</th><th>Accuracy</th><th>Mistakes</th></tr>
+          </thead>
+          <tbody id="results-rows"></tbody>
+        </table>
+        <p id="results-time" class="why"></p>
+        <p id="results-hearts" class="why"></p>
+        <button id="results-again" class="big" type="button">Play again</button>
+        <button id="results-menu" class="link" type="button">Menu</button>
+      </div>
+    </section>
+
+    <div id="celebrate" hidden>
+      <div id="confetti"></div>
+      <div class="boom">
+        <h2>You Don Buy House!</h2>
+        <p id="celebrate-sub"></p>
+      </div>
+    </div>
+
     <script type="module" src="./js/main.js"></script>
   </body>
 </html>

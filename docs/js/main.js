@@ -7,6 +7,7 @@ import {
   applyMove,
   expectation,
   resolveThrow,
+  accuracy,
   THROW_ORIGIN,
   MAX_ANGLE,
 } from "./engine/game.js";
@@ -125,7 +126,8 @@ const director = createDirector({
   say,
   onFlash: (f) => (director.view.flash = { ...f, t0: performance.now(), dur: 700 }),
   onTurn: () => startTurn(),
-  onOver: () => showMatchOver(),
+  onOver: (result) => showResults(result),
+  onHouse: (e) => celebrate(e),
 });
 const view = director.view;
 
@@ -141,9 +143,16 @@ function applyLooks() {
   const p = current();
   view.hero.style = normalizeStyle(p.look);
   view.hero.color = p.color;
+  view.hero.sash = p.sash;
   view.waiting = game.players
     .filter((q) => q !== p)
-    .map((q, i) => ({ style: normalizeStyle(q.look), color: q.color, x: 1.7 + i * 0.5, y: -1.1 }));
+    .map((q, i) => ({
+      style: normalizeStyle(q.look),
+      color: q.color,
+      sash: q.sash,
+      x: 1.7 + i * 0.5,
+      y: -1.1,
+    }));
 }
 
 let announced = false;
@@ -168,9 +177,11 @@ function hintText(e) {
   const p = current();
   if (p.ai) return `${p.name} is playing`;
   if (e.kind === "throw") return "Drag the stone back, then let go to throw";
+  if (e.kind === "backthrow") return "Ra Ile! Drag back and throw over your shoulder to buy a house";
+  if (e.kind === "tiebreak") return "Tie-break! Throw the stone closest to the red mark";
   if (e.kind === "pickup") return "Tap Pick up when the needle is in the green";
   if (e.needsTiming) return "Big jump! Tap the glowing square with the needle in the green";
-  return e.to === "start" ? "Tap HOME to finish" : "Tap the glowing square";
+  return e.to === "start" ? "Tap HOME to finish. Wrong tap = you miss!" : "Tap the glowing square. Wrong tap = you miss!";
 }
 
 function renderBoard() {
@@ -215,6 +226,7 @@ function refreshHud() {
   $("meter").hidden = !(mine && e.needsTiming);
   if (e.needsTiming) $("zone").style.width = `${e.zone * 100}%`;
   view.hint = e.kind === "throw" ? e.target : e.kind === "hop" ? e.to : null;
+  view.mark = game.phase === "tiebreak" ? { x: e.mark.x, y: e.mark.y } : null;
   const key = `${game.turnNo}:${game.phase}:${game.turn?.i ?? ""}`;
   if (key !== lastKey) {
     lastKey = key;
@@ -256,7 +268,7 @@ let aiTimer = null;
 function scheduleAi() {
   if (aiTimer || !game || game.over || director.busy || !current().ai) return;
   const id = matchId;
-  const delay = game.phase === "throw" ? 900 : 450;
+  const delay = ["throw", "ra_ile", "tiebreak"].includes(game.phase) ? 900 : 450;
   aiTimer = setTimeout(() => {
     aiTimer = null;
     if (id !== matchId || !game || game.over || director.busy || !current().ai) return;
@@ -284,20 +296,22 @@ function aimFrom(x, y) {
   return { power, angle };
 }
 
+// Each throwing phase uses the same drag; only the kind of move differs.
+const THROW_MOVE = { throw: "throw", ra_ile: "backthrow", tiebreak: "tiebreak" };
+
 canvas.addEventListener("pointerdown", (e) => {
   if (!humanTurn()) return;
-  if (game.phase === "throw") {
+  if (THROW_MOVE[game.phase]) {
     const s = stonePx();
     if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 64) return;
     drag = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
     moveDrag(e);
   } else if (game.phase === "hop") {
-    const sq = scene.hitSquare(e.clientX, e.clientY);
-    // A stray tap on some other square is ignored. Only the stone's square
-    // (a real mistake in Suwe) or the glowing one counts.
-    const ok = sq === expectation(game).to || sq === game.stone?.square;
-    if (sq !== null && ok) submit({ type: "hop", square: sq, timing: needle(performance.now()) });
+    // Any tap is a hop. The wrong square, the stone's square, someone's house or
+    // somewhere off the court all count as a miss, whether meant or not.
+    const sq = scene.hitSquare(e.clientX, e.clientY) ?? "out";
+    submit({ type: "hop", square: sq, timing: needle(performance.now()) });
   }
 });
 
@@ -317,7 +331,9 @@ function endDrag(e, cancel) {
   drag = null;
   const a = aimFrom(e.clientX, e.clientY);
   view.aim = null;
-  if (!cancel && a && a.power >= MIN_POWER) submit({ type: "throw", angle: a.angle, power: a.power });
+  if (!cancel && a && a.power >= MIN_POWER) {
+    submit({ type: THROW_MOVE[game.phase], angle: a.angle, power: a.power });
+  }
 }
 canvas.addEventListener("pointerup", (e) => endDrag(e, false));
 canvas.addEventListener("pointercancel", (e) => endDrag(e, true));
@@ -332,6 +348,7 @@ function mode(m) {
   $("menu").hidden = m !== "menu";
   $("setup").hidden = m !== "setup";
   $("gate").hidden = m !== "gate";
+  $("results").hidden = m !== "results";
   renderLives(true);
 }
 
@@ -340,17 +357,72 @@ const GUEST_MATCH_LIMIT = 1;
 const guestLimitOn = () => onStartNg() || params.has("guestlimit");
 const guestMatchesUsed = () => store.get("suwe.guestMatches") ?? 0;
 
-function showMatchOver() {
-  const last = game.players.map((p) => `${p.name}: ${p.circuits * 12 + p.target - 1} squares`).join(" · ");
-  const hearts = lives.lives ? "" : ` You have no hearts left. Next one in ${fmt(msToNextLife(lives, Date.now()))}.`;
-  showGate("Match over", `Everybody don finish their lives. ${last}.${hearts}`, false);
-  $("gate-back").textContent = "Back to menu";
-  game = null;
+// "You Don Buy House": a short celebration over the court.
+let celebrateTimer;
+function celebrate(e) {
+  const box = $("celebrate");
+  box.style.setProperty("--c", e.color ?? "#e03131");
+  $("celebrate-sub").textContent = `${e.name}: Na your house be this! Square ${e.square}`;
+  const confetti = $("confetti");
+  if (!confetti.children.length) {
+    const colors = ["#f03e3e", "#fcc419", "#40c057", "#339af0", "#be4bdb", "#ff922b"];
+    for (let i = 0; i < 28; i++) {
+      const c = document.createElement("i");
+      c.style.left = `${(i * 37) % 100}%`;
+      c.style.background = colors[i % colors.length];
+      c.style.animationDelay = `${(i % 7) * 0.12}s`;
+      c.style.animationDuration = `${1.4 + (i % 5) * 0.2}s`;
+      confetti.append(c);
+    }
+  }
+  box.hidden = false;
+  clearTimeout(celebrateTimer);
+  celebrateTimer = setTimeout(() => (box.hidden = true), 2300);
+}
+
+let matchStart = 0;
+function endMatchState() {
   matchId++;
   clearTimeout(aiTimer);
   aiTimer = null;
-  director.home();
+}
+
+function showResults(result) {
+  const g = game;
+  const names = result.winners.map((id) => g.players.find((p) => p.id === id).name);
+  $("results-title").textContent = result.tie ? "It's a draw" : "Winner!";
+  $("results-winner").textContent = names.join(" & ");
+  $("results-why").textContent =
+    result.reason === "tiebreak"
+      ? "Won the tie-break throw"
+      : result.reason === "all_claimed"
+        ? "Every square has been claimed"
+        : "Everybody ran out of hearts";
+  const rows = g.players.map((p) => {
+    const tr = document.createElement("tr");
+    if (result.winners.includes(p.id)) tr.className = "win";
+    const nameCell = document.createElement("td");
+    const dot = document.createElement("i");
+    dot.style.background = p.color ?? "#999";
+    nameCell.append(dot, p.name);
+    tr.append(nameCell);
+    for (const v of [p.houses.length, `${accuracy(p)}%`, p.stats.mistakes]) {
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.append(td);
+    }
+    return tr;
+  });
+  $("results-rows").replaceChildren(...rows);
+  $("results-time").textContent = `Match time ${fmt(Date.now() - matchStart)}`;
+  $("results-hearts").textContent = lives.lives
+    ? ""
+    : `You have no hearts left. Next one in ${fmt(msToNextLife(lives, Date.now()))}.`;
+  game = null;
+  endMatchState();
+  director.reset();
   view.hint = null;
+  mode("results");
 }
 
 function showGate(title, text, signIn) {
@@ -362,6 +434,8 @@ function showGate(title, text, signIn) {
 }
 
 $("gate-back").addEventListener("click", () => mode("menu"));
+$("results-again").addEventListener("click", () => $("play").click());
+$("results-menu").addEventListener("click", () => mode("menu"));
 $("gate-signin").href = signInUrl();
 
 $("play").addEventListener("click", () => {
@@ -387,7 +461,7 @@ $("play").addEventListener("click", () => {
 });
 
 const setup = createSetup($("setup"), {
-  getMe: () => ({ name: me.name, style: me.style }),
+  getMe: () => ({ name: me.name, style: me.style, signedIn: me.signedIn }),
   onBack: () => mode("menu"),
   onStart: (cfg) => startMatch(cfg),
 });
@@ -401,18 +475,17 @@ function startMatch(cfg) {
   game = createGame({ seed: Date.now() >>> 0, players });
   announced = false;
   lastKey = "";
-  director.home();
+  matchStart = Date.now();
+  director.reset();
   mode("play");
   startTurn();
 }
 
 $("menu-btn").addEventListener("click", () => {
   if (!confirm("Leave this match?")) return;
-  matchId++;
-  clearTimeout(aiTimer);
-  aiTimer = null;
+  endMatchState();
   game = null;
-  director.home();
+  director.reset();
   view.hint = null;
   mode("menu");
 });
@@ -455,6 +528,18 @@ if (params.has("debug")) {
     px: (x, y) => scene.project(x, y),
     zone: () => (game.phase === "throw" ? 1 : expectation(game).zone),
     spendLife,
+    // Drop in a crafted match state (for tests).
+    load(state) {
+      game = state;
+      matchStart = Date.now();
+      director.reset();
+      mode("play");
+      for (const h of state.owners.map((o, i) => [o, i + 1]).filter(([o]) => o)) {
+        const p = state.players.find((q) => q.id === h[0]);
+        director.view.houses.push({ square: h[1], color: p.color, name: p.name });
+      }
+      startTurn();
+    },
   };
 }
 

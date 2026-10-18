@@ -2,7 +2,7 @@
 // happened; this only shows it. Input stays locked while the queue plays.
 
 import { START_POINT, squareCenter } from "./engine/court.js";
-import { THROW_ORIGIN } from "./engine/game.js";
+import { THROW_ORIGIN, TIE_MARK } from "./engine/game.js";
 
 const lerp = (a, b, p) => a + (b - a) * p;
 const easeOut = (p) => 1 - (1 - p) * (1 - p);
@@ -24,12 +24,14 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash, onTurn, onOver }) {
+export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
     flash: null,
     aim: null,
+    houses: [],
+    mark: null,
     hero: {
       x: START_POINT.x,
       y: START_POINT.y,
@@ -53,6 +55,41 @@ export function createDirector({ style, say, onFlash, onTurn, onOver }) {
     view.hero.x = START_POINT.x;
     view.hero.y = START_POINT.y;
     view.stone = { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 };
+  }
+
+  // A stone flying from the throwing spot to where it lands.
+  function flightTask(to, height, dur, end) {
+    return {
+      dur,
+      run(p) {
+        view.stone = {
+          x: lerp(THROW_ORIGIN.x, to.x, p),
+          y: lerp(THROW_ORIGIN.y, to.y, p),
+          h: Math.sin(Math.PI * p) * height,
+        };
+      },
+      end() {
+        view.stone = { x: to.x, y: to.y, h: 0 };
+        end?.();
+      },
+    };
+  }
+
+  function faceViewer() {
+    let flipped = false;
+    return {
+      dur: 450,
+      run(p) {
+        pose.facing = Math.abs(Math.cos(Math.PI * p)) || 0.02;
+        if (p >= 0.5 && !flipped) {
+          flipped = true;
+          pose.back = false;
+        }
+      },
+      end() {
+        pose.facing = 1;
+      },
+    };
   }
 
   function hopTask(to, skip) {
@@ -187,17 +224,78 @@ export function createDirector({ style, say, onFlash, onTurn, onOver }) {
           queue.push({ dur: 500, run() {}, start: () => say(`Correct! Next: square ${e.to}`) });
           break;
         case "circuit":
+          queue.push(faceViewer());
           queue.push({
-            dur: 700,
+            dur: 1000,
             run() {},
-            start: () => say("All 12 squares done! Round complete"),
+            start: () => say("All 12 done! Ra Ile: throw over your shoulder"),
+          });
+          break;
+        case "backthrow":
+          queue.push(
+            flightTask(e.to, 170, 800, () => {
+              if (e.square) onFlash({ square: e.square, color: e.claimed ? GREEN : RED });
+            }),
+          );
+          if (!e.claimed) {
+            queue.push({ dur: 1000, run() {}, start: () => say("No house this time"), end: home });
+          }
+          break;
+        case "house":
+          queue.push({
+            dur: 2400,
+            run() {},
+            start() {
+              view.houses.push({ square: e.square, color: e.color ?? "#e03131", name: e.name });
+              onHouse(e);
+            },
+          });
+          queue.push({ dur: 200, run() {}, end: home });
+          break;
+        case "tiebreak_start":
+          queue.push({
+            dur: 1600,
+            run() {},
+            start() {
+              view.mark = { x: TIE_MARK.x, y: TIE_MARK.y };
+              say(e.round > 1 ? "Still level! Throw again" : "Tie! Closest stone to the red mark wins");
+            },
+            end() {
+              home();
+              onTurn();
+            },
+          });
+          break;
+        case "tiebreak_throw":
+          queue.push(flightTask(e.to, 90, 650));
+          queue.push({
+            dur: 1100,
+            run() {},
+            start: () => say(`${e.name}: ${e.dist.toFixed(2)} from the mark`),
+          });
+          break;
+        case "tiebreak_next":
+          queue.push({
+            dur: 200,
+            run() {},
+            end() {
+              home();
+              onTurn();
+            },
           });
           break;
         case "out":
           queue.push({ dur: 900, run() {}, start: () => say(`${e.name} don finish lives o!`) });
           break;
         case "match_over":
-          queue.push({ dur: 400, run() {}, end: () => onOver() });
+          queue.push({
+            dur: 500,
+            run() {},
+            end() {
+              view.mark = null;
+              onOver(e);
+            },
+          });
           break;
         case "turn_end":
           queue.push({
@@ -241,6 +339,12 @@ export function createDirector({ style, say, onFlash, onTurn, onOver }) {
       return Boolean(cur) || queue.length > 0;
     },
     home,
+    // A fresh match: no houses, no mark.
+    reset() {
+      view.houses = [];
+      view.mark = null;
+      home();
+    },
     // Put the picture where saved state says it should be.
     sync(state) {
       resetPose();
