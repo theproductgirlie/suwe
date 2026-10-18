@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+*.apk
+*.aab
+android/
+.env
+.env.*
+shots/
