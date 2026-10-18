@@ -137,6 +137,8 @@ function fit() {
 }
 addEventListener("resize", fit);
 fit();
+// The court's numbers use the bundled font: redraw the backdrop once it has loaded.
+document.fonts?.load('800 40px "Baloo 2"').then(fit, () => {});
 
 // Whose turn it is: they take the court, the others wait beside the start.
 function applyLooks() {
@@ -548,6 +550,7 @@ if (params.has("debug") && !onStartNg()) {
 const card = {
   root: $("player-card"),
   face: $("player-face"),
+  initials: $("player-initials"),
   name: $("player-name"),
   account: $("player-account"),
   signIn: $("player-sign-in"),
@@ -560,6 +563,13 @@ function showPlayer(p) {
   card.account.textContent = p.account ? `@${p.account}` : "Not signed in";
   if (p.face) card.face.src = p.face;
   card.face.hidden = !p.face;
+  card.initials.textContent = p.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+  card.initials.hidden = Boolean(p.face);
   card.signIn.hidden = p.signedIn || !onStartNg();
   card.root.hidden = false;
 }

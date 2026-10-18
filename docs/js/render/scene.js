@@ -22,7 +22,8 @@ export function createScene(canvas) {
   function layout() {
     const courtBottom = H * 0.8;
     const courtTop = H * 0.3;
-    const cellW = (W * 0.8) / COLS;
+    // Sized by height too, so a wide desktop window keeps the same proportions as a phone.
+    const cellW = Math.min((W * 0.8) / COLS, H * 0.185);
     L = { courtBottom, courtTop, cellW, cx: W / 2, wallBottom: H * 0.27 };
   }
 
@@ -97,13 +98,14 @@ export function createScene(canvas) {
     // Sun
     c.fillStyle = "rgba(255,244,180,0.9)";
     c.beginPath();
-    c.arc(W * 0.82, H * 0.08, W * 0.07, 0, Math.PI * 2);
+    c.arc(L.cx + Math.min(W * 0.32, L.cellW * 2.4), H * 0.08, L.cellW * 0.45, 0, Math.PI * 2);
     c.fill();
 
     // Trees behind the wall
     const wallTop = L.wallBottom - H * 0.09;
-    tree(c, W * 0.14, wallTop + 6, W / 300);
-    tree(c, W * 0.86, wallTop + 6, W / 280);
+    const spread = Math.min(W * 0.36, L.cellW * 2.7);
+    tree(c, L.cx - spread, wallTop + 6, (L.cellW * 2.5) / 300);
+    tree(c, L.cx + spread, wallTop + 6, (L.cellW * 2.4) / 280);
 
     // Compound wall: painted concrete blocks with a cap
     const wallH = L.wallBottom - wallTop;
@@ -145,15 +147,16 @@ export function createScene(canvas) {
       c.fillRect(px, py, 2, 1.5);
     }
 
-    // Watching children, sitting along the foot of the wall
+    // Watching children, sitting along the foot of the wall beside the court
+    const edge = Math.min(W / 2 - 26, L.cellW * 1.75);
     const kids = [
-      [0.07, 3, 0.5],
-      [0.14, 1, 0.42],
-      [0.86, 4, 0.42],
-      [0.93, 2, 0.5],
+      [-edge, 3, 0.5],
+      [-edge + L.cellW * 0.36, 1, 0.42],
+      [edge - L.cellW * 0.36, 4, 0.42],
+      [edge, 2, 0.5],
     ];
-    for (const [fx, si, sc] of kids) {
-      drawCharacter(c, STOCK[si % STOCK.length].style, W * fx, L.wallBottom + H * 0.06, sc * (W / 390), {
+    for (const [dx, si, sc] of kids) {
+      drawCharacter(c, STOCK[si % STOCK.length].style, L.cx + dx, L.wallBottom + H * 0.06, sc * (L.cellW / 156), {
         shadow: true,
       });
     }
@@ -201,7 +204,7 @@ export function createScene(canvas) {
       const r = squareRect(n);
       const p = project(r.x + 0.5, r.y + 0.5);
       const size = L.cellW * 0.34 * p.scale;
-      c.font = `800 ${size}px "Trebuchet MS", system-ui, sans-serif`;
+      c.font = `800 ${size}px "Baloo 2", "Trebuchet MS", system-ui, sans-serif`;
       c.fillStyle = "rgba(255,255,255,0.9)";
       c.strokeStyle = "rgba(90,60,20,0.35)";
       c.lineWidth = size * 0.1;
@@ -243,7 +246,7 @@ export function createScene(canvas) {
       ctx.stroke();
       ctx.setLineDash([]);
       const c = project(COLS / 2, -1.25);
-      ctx.font = `800 ${L.cellW * 0.17}px "Trebuchet MS", system-ui, sans-serif`;
+      ctx.font = `800 ${L.cellW * 0.17}px "Baloo 2", "Trebuchet MS", system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "rgba(120,70,0,0.75)";
@@ -282,7 +285,7 @@ export function createScene(canvas) {
       ctx.fillRect(g.x - u * 0.9, g.y, u * 1.8, u * 1.3);
       // owner's name, below it
       const n = project(r.x + 0.5, r.y + 0.2);
-      ctx.font = `800 ${Math.max(10, L.cellW * 0.12 * n.scale)}px "Trebuchet MS", system-ui, sans-serif`;
+      ctx.font = `800 ${Math.max(10, L.cellW * 0.12 * n.scale)}px "Baloo 2", "Trebuchet MS", system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.lineWidth = 3;

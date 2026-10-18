@@ -47,7 +47,6 @@ await session("", async (b, ev) => {
   await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('4')).click()`);
   await sleep(100);
   check((await ev(`document.querySelectorAll('.seat').length`)) === 4, "can pick 4 players");
-  await ev(`document.querySelectorAll('.seat')[2].querySelector('.seg button').click()`);
   await ev(`(() => { const i = document.querySelectorAll('.seat')[2].querySelector('input.name'); i.value = 'Bola'; i.dispatchEvent(new Event('input')); })()`);
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
@@ -190,20 +189,20 @@ await session("", async (b, ev) => {
 await session("", async (b, ev) => {
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
-  const torso = () => ev(`(() => { const c = document.querySelector('.seat-face').getContext('2d'); const d = c.getImageData(56, 62, 1, 1).data; return [d[0], d[1], d[2]]; })()`);
+  const torso = () => ev(`(() => { const c = document.querySelector('.seat-face').getContext('2d'); const d = c.getImageData(120, 126, 1, 1).data; return [d[0], d[1], d[2]]; })()`);
   const near = (a, hex) => {
     const n = parseInt(hex.slice(1), 16);
     return Math.abs(a[0] - (n >> 16)) + Math.abs(a[1] - ((n >> 8) & 255)) + Math.abs(a[2] - (n & 255)) < 30;
   };
   const first = await torso();
-  check(near(first, "#e03131"), `seat 1 outfit starts in its house colour (rgb ${first})`);
+  check(near(first, "#d6433b"), `seat 1 outfit starts in its house colour (rgb ${first})`);
   await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[4].click()`); // teal (blue is taken by seat 2)
   await sleep(100);
   const second = await torso();
-  check(near(second, "#0ca678"), `picking teal turns the preview outfit teal (rgb ${second})`);
+  check(near(second, "#3c9e72"), `picking teal turns the preview outfit teal (rgb ${second})`);
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(300);
-  check((await ev(`__suwe.game.players[0].look.primaryColor`)) === "#0ca678", "the match uses the same outfit colour");
+  check((await ev(`__suwe.game.players[0].look.primaryColor`)) === "#3c9e72", "the match uses the same outfit colour");
   check((await ev(`__suwe.game.players[1].look.primaryColor`)) === (await ev(`__suwe.game.players[1].color`)), "computer's outfit matches its colour too");
 });
 
@@ -220,7 +219,7 @@ await session("", async (b, ev) => {
   await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].click()`);
   check(JSON.stringify(await colours()) === JSON.stringify(start), "tapping a taken colour changes nobody's colour");
   check((await ev(`document.getElementById('toast').textContent`)) === "Player 2 has this colour", "it says which player has it");
-  check((await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].textContent`)) === "2", "taken dot shows the owner's number");
+  check((await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].textContent`)) === "P2", "taken dot shows the owner's label (P2)");
   // Player 1 picks a free colour: only player 1 changes.
   await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[5].click()`);
   const after = await colours();
@@ -238,6 +237,47 @@ await session("", async (b, ev) => {
   const size = await ev(`document.querySelector('.dot').getBoundingClientRect().width`);
   check(size >= 32, `colour dots are big enough to tap (${size}px)`);
 });
+
+// ---- 8c. Computers only play 1-on-1 ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  const cpuTags = () => ev(`document.querySelectorAll('.tag.cpu').length`);
+  const toggles = () => ev(`document.querySelectorAll('.seg.track').length`);
+  check((await cpuTags()) === 1 && (await toggles()) === 1, "2 players: seat 2 is a computer by default and can be switched");
+  for (const n of [1, 3, 4]) {
+    await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('${n}')).click()`);
+    await sleep(100);
+    check((await cpuTags()) === 0 && (await toggles()) === 0, `${n} player(s): no computer seats and no Computer switch`);
+  }
+  // Switching 2 -> 3 turns the computer into a person, and the match has no AI.
+  await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('2')).click()`);
+  await sleep(100);
+  await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('3')).click()`);
+  await sleep(100);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  check((await ev(`__suwe.game.players.length`)) === 3 && (await ev(`__suwe.game.players.every(p => p.ai === null)`)), "a 3-player match has only people");
+});
+
+// ---- 8d. Desktop: sensible proportions and a row of cards ----
+{
+  const b = await launch({ url: "http://localhost:5173/?debug", width: 1280, height: 800, scale: 1, mobile: false });
+  const ev = (js) => b.evaluate(js);
+  await sleep(400);
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('4')).click()`);
+  await sleep(150);
+  const tops = await ev(`[...document.querySelectorAll('.seat')].map(s => Math.round(s.getBoundingClientRect().top))`);
+  check(tops.length === 4 && new Set(tops).size === 1, "desktop: 4 player cards sit in one row");
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(400);
+  const court = await ev(`(() => { const a = __suwe.px(0, 0), b = __suwe.px(2, 0); const t = __suwe.px(0, 6); return { w: b.x - a.x, h: a.y - t.y }; })()`);
+  check(court.w > 200 && court.w < 0.4 * 1280, `desktop: court is a sensible width (${Math.round(court.w)}px of 1280)`);
+  check(court.h / court.w > 1 && court.h / court.w < 2.2, `desktop: court keeps its proportions (h/w ${(court.h / court.w).toFixed(2)})`);
+  await b.close();
+}
 
 // ---- 9. Wrong taps while hopping lose the turn and a heart ----
 await session("", async (b, ev) => {
@@ -279,7 +319,7 @@ await session("", async (b, ev) => {
   await ev(`(async () => {
     const g = await import("./js/engine/game.js");
     const s = g.createGame({ players: [
-      { id: "a", name: "Ada", color: "#e03131", look: null },
+      { id: "a", name: "Ada", color: "#d6433b", look: null },
       { id: "b", name: "Bola", color: "#1971c2", look: null },
     ] });
     s.phase = "ra_ile";
@@ -313,7 +353,7 @@ await session("", async (b, ev) => {
   await ev(`(async () => {
     const g = await import("./js/engine/game.js");
     const s = g.createGame({ players: [
-      { id: "a", name: "Ada", color: "#e03131", look: null },
+      { id: "a", name: "Ada", color: "#d6433b", look: null },
       { id: "b", name: "Bola", color: "#1971c2", look: null },
     ] });
     for (let n = 1; n <= 5; n++) { s.owners[n - 1] = "a"; s.players[0].houses.push(n); }

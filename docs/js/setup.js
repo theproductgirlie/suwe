@@ -1,10 +1,14 @@
-// The "how many players" screen: seats, names, characters and house colours.
+// The "Who dey play?" screen: how many players, then a card per seat with a
+// name, a character and a house colour.
+//
+// A computer can only be the opponent in a 2-player match. With 1 player it is
+// solo practice, and with 3 or 4 players every seat is a person.
 
 import { drawCharacter, normalizeStyle, STOCK } from "./render/character.js";
 import { LEVELS } from "./engine/ai.js";
 
-export const COLORS = ["#e03131", "#1971c2", "#f08c00", "#7048e8", "#0ca678", "#d6336c"];
-const MAX_NAME = 12;
+export const COLORS = ["#d6433b", "#3b78c9", "#e08a1e", "#7c4ddf", "#3c9e72", "#c93b6e"];
+const MAX_NAME = 14;
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -15,7 +19,7 @@ function el(tag, cls, text) {
 
 /**
  * @param {HTMLElement} root
- * @param {{ getMe: () => {name:string, style:object|null}, onStart: (cfg) => void, onBack: () => void }} opts
+ * @param {{ getMe: () => {name:string, style:object|null, signedIn:boolean}, onStart: (cfg) => void, onBack: () => void, say?: (t:string) => void }} opts
  */
 export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
   let count = 2;
@@ -32,7 +36,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     const char = i === 0 ? "me" : chars().find((c) => c.id !== "me" && !taken.has(c.id)).id;
     const color = COLORS.find((c) => !seats.some((s) => s.color === c));
     return {
-      kind: i === 0 ? "person" : "computer",
+      kind: i === 0 || count !== 2 ? "person" : "computer",
       name: i === 0 ? me.name : "",
       level: "medium",
       char,
@@ -44,6 +48,15 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     const me = getMe();
     while (seats.length < count) seats.push(defaultSeat(seats.length, me));
     seats.length = count;
+    // Computers only play 1-on-1: with 3 or 4 players every seat is a person.
+    if (count !== 2) {
+      seats.forEach((s, i) => {
+        if (s.kind === "computer") {
+          s.kind = "person";
+          if (s.char === "me" && i > 0) s.char = chars().find((c) => c.id !== "me").id;
+        }
+      });
+    }
   }
 
   const charOf = (seat) => chars().find((c) => c.id === seat.char);
@@ -53,7 +66,9 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
   // recognisable: they get a sash in the house colour instead.
   const keepsOwnOutfit = (seat) => seat.char === "me" && getMe().signedIn;
   const lookOf = (seat) =>
-    keepsOwnOutfit(seat) ? charOf(seat).style : { ...normalizeStyle(charOf(seat).style), primaryColor: seat.color };
+    keepsOwnOutfit(seat)
+      ? charOf(seat).style
+      : { ...normalizeStyle(charOf(seat).style), primaryColor: seat.color };
 
   function nextChar(i) {
     const list = chars();
@@ -69,16 +84,26 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     }
   }
 
+  function readyText() {
+    const cpu = seats.filter((s) => s.kind === "computer").length;
+    if (count === 1) return "Solo practice. Just you and the stone.";
+    if (count === 2) return cpu ? "1 person and the computer ready to jump" : "2 people ready to jump";
+    return `${count} people ready to jump · computers only play 1 on 1`;
+  }
+
   function render() {
     ensureSeats();
     root.replaceChildren();
 
-    const head = el("div", "setup-head");
-    const back = el("button", "link", "‹ Back");
+    const back = el("button", "setup-back", "‹  Back");
     back.type = "button";
     back.onclick = onBack;
-    head.append(back, el("h2", "", "Who dey play?"));
-    root.append(head);
+
+    root.append(
+      back,
+      el("h2", "setup-title", "Who dey play?"),
+      el("p", "setup-sub", "Choose your crew. Everybody gets their own colour."),
+    );
 
     const counts = el("div", "chips");
     for (let n = 1; n <= 4; n++) {
@@ -93,10 +118,12 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     root.append(counts);
 
     const list = el("div", "seats");
+    list.style.setProperty("--n", String(count));
     seats.forEach((seat, i) => list.append(seatCard(seat, i)));
     root.append(list);
 
-    const go = el("button", "big", count === 1 ? "Start practice" : "Start match");
+    root.append(el("p", "ready", readyText()));
+    const go = el("button", "big go", count === 1 ? "Start practice" : "Start match");
     go.type = "button";
     go.onclick = start;
     root.append(go);
@@ -106,13 +133,13 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     const card = el("div", "seat");
     card.style.setProperty("--c", seat.color);
 
+    const head = el("div", "seat-head");
     const face = el("canvas", "seat-face");
-    face.width = 112;
-    face.height = 144;
+    face.width = 240;
+    face.height = 240;
     face.title = "Tap to change character";
     const ctx = face.getContext("2d");
-    ctx.translate(0.5, 0.5);
-    drawCharacter(ctx, lookOf(seat), 56, 128, 0.95, {
+    drawCharacter(ctx, lookOf(seat), 120, 226, 1.55, {
       back: false,
       sash: keepsOwnOutfit(seat) ? seat.color : null,
     });
@@ -120,13 +147,30 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
       nextChar(i);
       render();
     };
+    head.append(face, el("span", "badge", `P${i + 1}`));
+    if (i === 0) head.append(el("span", "tag", "You"));
+    else if (seat.kind === "computer") head.append(el("span", "tag cpu", "CPU"));
 
-    const main = el("div", "seat-main");
-    const top = el("div", "seat-top");
-    top.append(el("b", "", `Player ${i + 1}`));
+    const body = el("div", "seat-body");
 
-    if (count > 1 && i > 0) {
-      const seg = el("div", "seg");
+    if (seat.kind === "person") {
+      body.append(el("label", "lbl", "Name"));
+      const input = el("input", "name");
+      input.type = "text";
+      input.maxLength = MAX_NAME;
+      input.placeholder = i === 0 ? "Guest" : `Guest ${i + 1}`;
+      input.value = seat.name;
+      input.autocomplete = "off";
+      input.setAttribute("aria-label", `Player ${i + 1} name`);
+      input.oninput = () => (seat.name = input.value);
+      body.append(input);
+    } else {
+      body.append(el("div", "cname", charOf(seat).name));
+    }
+
+    // Person or Computer: only the second seat of a 2-player match can be a computer.
+    if (count === 2 && i === 1) {
+      const seg = el("div", "seg track");
       for (const kind of ["person", "computer"]) {
         const b = el("button", seat.kind === kind ? "on" : "", kind === "person" ? "Person" : "Computer");
         b.type = "button";
@@ -138,22 +182,11 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
         };
         seg.append(b);
       }
-      top.append(seg);
+      body.append(seg);
     }
-    main.append(top);
 
-    if (seat.kind === "person") {
-      const input = el("input", "name");
-      input.type = "text";
-      input.maxLength = MAX_NAME;
-      input.placeholder = i === 0 ? "Guest" : `Guest ${i + 1}`;
-      input.value = seat.name;
-      input.autocomplete = "off";
-      input.setAttribute("aria-label", `Player ${i + 1} name`);
-      input.oninput = () => (seat.name = input.value);
-      main.append(input);
-    } else {
-      const lv = el("div", "seg wide");
+    if (seat.kind === "computer") {
+      const lv = el("div", "seg wide levels");
       for (const level of Object.keys(LEVELS)) {
         const b = el("button", seat.level === level ? "on" : "", level[0].toUpperCase() + level.slice(1));
         b.type = "button";
@@ -163,19 +196,19 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
         };
         lv.append(b);
       }
-      main.append(el("div", "cname", charOf(seat).name), lv);
+      body.append(lv);
     }
 
     const dots = el("div", "dots");
     for (const color of COLORS) {
-      // A colour another player holds shows their number and says so when tapped.
+      // A colour another player holds shows their label and says so when tapped.
       const owner = seats.findIndex((s, j) => j !== i && s.color === color);
       const d = el("button", `dot${seat.color === color ? " on" : ""}${owner >= 0 ? " taken" : ""}`);
       d.type = "button";
       d.style.background = color;
       d.setAttribute("aria-label", owner >= 0 ? `Colour used by player ${owner + 1}` : "House colour");
       if (owner >= 0) {
-        d.textContent = String(owner + 1);
+        d.textContent = `P${owner + 1}`;
         d.onclick = () => say(`Player ${owner + 1} has this colour`);
       } else {
         d.onclick = () => {
@@ -185,16 +218,19 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
       }
       dots.append(d);
     }
-    main.append(dots);
+    body.append(dots);
 
-    card.append(face, main);
+    card.append(head, body);
     return card;
   }
 
   function start() {
+    // Never start with a repeated colour.
     const used = new Set();
     for (const seat of seats) {
-      if (used.has(seat.color)) seat.color = COLORS.find((c) => !used.has(c) && !seats.some((s) => s.color === c)) ?? seat.color;
+      if (used.has(seat.color)) {
+        seat.color = COLORS.find((c) => !used.has(c) && !seats.some((s) => s.color === c)) ?? seat.color;
+      }
       used.add(seat.color);
     }
     const players = seats.map((seat, i) => {
