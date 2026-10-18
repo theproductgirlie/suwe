@@ -5,7 +5,7 @@ import { planMove, playAiMove, LEVELS } from "../docs/js/engine/ai.js";
 
 // One computer playing alone: how far does it get in a fixed number of moves?
 function progress(level, seed, moves = 400) {
-  let s = createGame({ seed, players: [{ id: "c", name: "C", ai: level }] });
+  let s = createGame({ seed, players: [{ id: "c", name: "C", ai: level, lives: 100000 }] });
   let rejected = 0;
   for (let i = 0; i < moves; i++) {
     const r = playAiMove(s, level);

@@ -139,5 +139,51 @@ await session("", async (b, ev) => {
   check((await ev(`document.getElementById('setup').hidden`)) === false, "locally the guest limit is off, so testing is never blocked");
 });
 
+// ---- 6. Hearts per match: solo runs out -> match over, saved hearts are 0, Play blocked ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('1')).click()`);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(400);
+  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("♥5"), "scoreboard shows 5 hearts");
+  await badThrow(b, ev);
+  await idle(ev);
+  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("♥4"), "a failed turn costs a heart (♥4)");
+  check((await ev(`__suwe.lives.lives`)) === 4, "your saved hearts dropped too");
+  for (let i = 0; i < 4; i++) {
+    await badThrow(b, ev);
+    await idle(ev);
+  }
+  await sleep(600);
+  check((await ev(`document.getElementById('gate-title').textContent`)) === "Match over", "out of hearts: match over screen");
+  check((await ev(`__suwe.lives.lives`)) === 0, "saved hearts are 0");
+  await ev(`document.getElementById('gate-back').click()`);
+  await sleep(200);
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  check((await ev(`document.getElementById('gate-title').textContent`)) === "No lives left", "cannot start another match at 0 hearts");
+});
+
+// ---- 7. You run out first, the next player carries on ----
+await session("", async (b, ev) => {
+  for (let i = 0; i < 4; i++) await ev(`__suwe.spendLife()`); // you have 1 heart left
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`); // seat 2: Person
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(400);
+  check((await ev(`__suwe.game.players[0].lives`)) === 1, "you start the match with your saved single heart");
+  await badThrow(b, ev);
+  await idle(ev);
+  check((await ev(`__suwe.game.players[0].out`)) === true, "you are out");
+  check((await ev(`__suwe.game.current`)) === 1 && (await ev(`__suwe.game.over`)) === false, "player 2 plays on, match continues");
+  check((await ev(`document.querySelectorAll('.chip-p.out').length`)) === 1, "your chip is greyed out");
+  await badThrow(b, ev);
+  await idle(ev);
+  check((await ev(`__suwe.game.current`)) === 1, "player 2 keeps the turns, you are skipped");
+  check((await ev(`__suwe.game.players[1].lives`)) === 4, "player 2 lost a heart for the miss");
+});
+
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nall passed");
 process.exit(fails.length ? 1 : 0);

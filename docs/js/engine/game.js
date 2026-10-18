@@ -10,11 +10,12 @@
 //   { type: "pickup", timing }
 //
 // Events (for the renderer to animate; the engine never waits on them):
-//   throw, hop, turn, pickup, fail, course_done, advance, circuit, turn_end
+//   throw, hop, turn, pickup, fail, out, match_over, course_done, advance, circuit, turn_end
 
 import { SQUARES, START_POINT, squareCenter, stoneSquare, locate, isSquare } from "./court.js";
 import { seedState } from "./rng.js";
 
+export const START_LIVES = 5;
 export const STONE_RADIUS = 0.075;
 export const THROW_ORIGIN = Object.freeze({ x: 0.95, y: -0.6 });
 export const MAX_RANGE = 8;
@@ -33,12 +34,15 @@ export function createGame({ seed = 1, players = [{ id: "p1", name: "Guest" }] }
       ai: p.ai ?? null, // null = a person, otherwise "easy" | "medium" | "hard"
       look: p.look ?? null, // start.ng style fields, kept so a saved match can be redrawn
       houses: [],
+      lives: p.lives ?? START_LIVES, // a failed turn costs one; at 0 the player is out
+      out: false,
       target: 1,
       circuits: 0,
       stats: { throws: 0, hits: 0, mistakes: 0 },
     })),
     current: 0,
     turnNo: 1,
+    over: false, // true once nobody has lives left
     phase: "throw", // throw | hop | pickup
     at: "start", // where the current player stands: "start" or a square
     facing: "away", // away from us while going out, toward us on the way back
@@ -125,17 +129,34 @@ function pointOf(at) {
 }
 
 function fail(s, events, reason, at = null) {
-  s.players[s.current].stats.mistakes++;
-  events.push({ type: "fail", reason, at });
+  const p = s.players[s.current];
+  p.stats.mistakes++;
+  p.lives = Math.max(0, p.lives - 1);
+  events.push({ type: "fail", reason, at, lives: p.lives });
   s.turnNo++;
-  s.current = (s.current + 1) % s.players.length;
   s.phase = "throw";
   s.at = "start";
   s.facing = "away";
   s.holding = false;
   s.stone = null;
   s.turn = null;
-  events.push({ type: "turn_end", next: s.players[s.current].id });
+  if (p.lives === 0) {
+    p.out = true;
+    events.push({ type: "out", id: p.id, name: p.name });
+  }
+  // The turn goes to the next player who still has lives (it may be the same one).
+  const n = s.players.length;
+  let next = -1;
+  for (let i = 1; i <= n && next < 0; i++) {
+    if (!s.players[(s.current + i) % n].out) next = (s.current + i) % n;
+  }
+  if (next < 0) {
+    s.over = true;
+    events.push({ type: "match_over" });
+  } else {
+    s.current = next;
+    events.push({ type: "turn_end", next: s.players[next].id });
+  }
   return { state: s, events };
 }
 
@@ -175,6 +196,7 @@ export function applyMove(prev, move) {
   const events = [];
   const p = s.players[s.current];
   const reject = (why) => ({ state: prev, events: [], rejected: why });
+  if (s.over) return reject("match_over");
 
   if (move.type === "throw") {
     if (s.phase !== "throw") return reject("wrong_phase");

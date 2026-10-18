@@ -24,7 +24,7 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash, onTurn }) {
+export function createDirector({ style, say, onFlash, onTurn, onOver }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
@@ -192,6 +192,12 @@ export function createDirector({ style, say, onFlash, onTurn }) {
             run() {},
             start: () => say("All 12 squares done! Round complete"),
           });
+          break;
+        case "out":
+          queue.push({ dur: 900, run() {}, start: () => say(`${e.name} don finish lives o!`) });
+          break;
+        case "match_over":
+          queue.push({ dur: 400, run() {}, end: () => onOver() });
           break;
         case "turn_end":
           queue.push({

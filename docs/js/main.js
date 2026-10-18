@@ -125,6 +125,7 @@ const director = createDirector({
   say,
   onFlash: (f) => (director.view.flash = { ...f, t0: performance.now(), dur: 700 }),
   onTurn: () => startTurn(),
+  onOver: () => showMatchOver(),
 });
 const view = director.view;
 
@@ -177,12 +178,12 @@ function renderBoard() {
   board.replaceChildren(
     ...players().map((p) => {
       const chip = document.createElement("div");
-      chip.className = `chip-p${p === current() ? " now" : ""}`;
+      chip.className = `chip-p${p === current() ? " now" : ""}${p.out ? " out" : ""}`;
       chip.style.setProperty("--c", p.color ?? "#999");
       const name = document.createElement("b");
       name.textContent = p.name;
       const line = document.createElement("span");
-      line.textContent = `⌂ ${p.houses.length} · Sq ${p.target}`;
+      line.textContent = p.out ? "OUT" : `♥${p.lives} ⌂${p.houses.length} Sq${p.target}`;
       if (p.ai) {
         const tag = document.createElement("em");
         tag.className = "ai";
@@ -227,9 +228,22 @@ function needle(now) {
 }
 
 // --- playing a move ---------------------------------------------------------------------------
+// Player 1 is the person holding the phone: their hearts are the saved ones.
+function syncHearts() {
+  const now = Date.now();
+  let t = tickLives(lives, now);
+  while (t.lives > game.players[0].lives) t = loseLife(t, now);
+  if (t.lives !== lives.lives) {
+    lives = t;
+    saveLives();
+    renderLives(true);
+  }
+}
+
 function commit(r) {
   if (r.rejected) return;
   game = r.state;
+  syncHearts();
   view.aim = null;
   view.hint = null;
   $("meter").classList.add("locked");
@@ -240,12 +254,12 @@ const submit = (move) => commit(applyMove(game, move));
 // The computer takes its turn a moment after the picture has settled.
 let aiTimer = null;
 function scheduleAi() {
-  if (aiTimer || !game || director.busy || !current().ai) return;
+  if (aiTimer || !game || game.over || director.busy || !current().ai) return;
   const id = matchId;
   const delay = game.phase === "throw" ? 900 : 450;
   aiTimer = setTimeout(() => {
     aiTimer = null;
-    if (id !== matchId || !game || director.busy || !current().ai) return;
+    if (id !== matchId || !game || game.over || director.busy || !current().ai) return;
     commit(playAiMove(game, current().ai));
   }, delay);
 }
@@ -253,7 +267,7 @@ function scheduleAi() {
 // --- input --------------------------------------------------------------------------------------
 const MIN_POWER = 0.12;
 let drag = null;
-const humanTurn = () => game && !director.busy && !current().ai;
+const humanTurn = () => game && !game.over && !director.busy && !current().ai;
 
 function stonePx() {
   return scene.project(THROW_ORIGIN.x, THROW_ORIGIN.y);
@@ -326,7 +340,21 @@ const GUEST_MATCH_LIMIT = 1;
 const guestLimitOn = () => onStartNg() || params.has("guestlimit");
 const guestMatchesUsed = () => store.get("suwe.guestMatches") ?? 0;
 
+function showMatchOver() {
+  const last = game.players.map((p) => `${p.name}: ${p.circuits * 12 + p.target - 1} squares`).join(" · ");
+  const hearts = lives.lives ? "" : ` You have no hearts left. Next one in ${fmt(msToNextLife(lives, Date.now()))}.`;
+  showGate("Match over", `Everybody don finish their lives. ${last}.${hearts}`, false);
+  $("gate-back").textContent = "Back to menu";
+  game = null;
+  matchId++;
+  clearTimeout(aiTimer);
+  aiTimer = null;
+  director.home();
+  view.hint = null;
+}
+
 function showGate(title, text, signIn) {
+  $("gate-back").textContent = "Back";
   $("gate-title").textContent = title;
   $("gate-text").textContent = text;
   $("gate-signin").hidden = !signIn;
@@ -369,7 +397,8 @@ function startMatch(cfg) {
   matchId++;
   clearTimeout(aiTimer);
   aiTimer = null;
-  game = createGame({ seed: Date.now() >>> 0, players: cfg.players });
+  const players = cfg.players.map((p, i) => (i === 0 ? { ...p, lives: tickLives(lives, Date.now()).lives } : p));
+  game = createGame({ seed: Date.now() >>> 0, players });
   announced = false;
   lastKey = "";
   director.home();

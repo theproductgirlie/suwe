@@ -257,3 +257,78 @@ test("two players alternate turns after a failure", () => {
   assert.equal(s.players[1].target, 2);
   assert.equal(s.players[0].target, 1);
 });
+
+// ---- hearts: a failed turn costs a heart; at 0 the player is out ----
+
+const miss = (s) => applyMove(s, throwSquare(12)); // wrong square for a fresh target 1
+
+test("a failed turn costs the player one heart, a clean course does not", () => {
+  let s = createGame();
+  assert.equal(s.players[0].lives, 5);
+  s = playCourse(applyMove(s, throwSquare(1)).state).state;
+  assert.equal(s.players[0].lives, 5, "clean course keeps all hearts");
+  const r = miss(s);
+  assert.equal(r.state.players[0].lives, 4);
+  assert.equal(r.events.find((e) => e.type === "fail").lives, 4);
+});
+
+test("players can start with fewer hearts (carried over from before)", () => {
+  const s = createGame({ players: [{ id: "a", name: "A", lives: 2 }, { id: "b", name: "B" }] });
+  assert.deepEqual(s.players.map((p) => p.lives), [2, 5]);
+});
+
+test("at 0 hearts the player is out and the next player plays", () => {
+  let s = createGame({ players: [{ id: "a", name: "A", lives: 1 }, { id: "b", name: "B" }] });
+  const r = miss(s);
+  assert.equal(r.state.players[0].out, true);
+  assert.ok(r.events.some((e) => e.type === "out" && e.id === "a"));
+  assert.equal(r.state.current, 1);
+  assert.equal(r.state.over, false);
+});
+
+test("a player who is out is skipped, so the others keep taking turns", () => {
+  let s = createGame({
+    players: [{ id: "a", name: "A", lives: 1 }, { id: "b", name: "B" }, { id: "c", name: "C" }],
+  });
+  s = miss(s).state; // A out, B plays
+  assert.equal(s.current, 1);
+  s = miss(s).state; // B fails, next is C (A skipped)
+  assert.equal(s.current, 2);
+  s = miss(s).state; // C fails, back to B, not A
+  assert.equal(s.current, 1);
+  assert.equal(s.players[0].lives, 0);
+});
+
+test("the last player standing keeps playing until their hearts run out too", () => {
+  let s = createGame({ players: [{ id: "a", name: "A", lives: 1 }, { id: "b", name: "B", lives: 2 }] });
+  s = miss(s).state; // A out
+  const r1 = miss(s); // B 2 -> 1, B plays again
+  assert.equal(r1.state.current, 1);
+  assert.equal(r1.state.over, false);
+  assert.equal(r1.events.at(-1).type, "turn_end");
+  const r2 = miss(r1.state); // B out: nobody left
+  assert.equal(r2.state.over, true);
+  assert.equal(r2.events.at(-1).type, "match_over");
+});
+
+test("solo: running out of hearts ends the match", () => {
+  let s = createGame();
+  for (let i = 0; i < 4; i++) s = miss(s).state;
+  assert.equal(s.over, false);
+  s = miss(s).state;
+  assert.equal(s.players[0].lives, 0);
+  assert.equal(s.over, true);
+});
+
+test("nothing can be played once the match is over", () => {
+  let s = createGame({ players: [{ id: "a", name: "A", lives: 1 }] });
+  s = miss(s).state;
+  assert.equal(s.over, true);
+  assert.equal(applyMove(s, throwSquare(1)).rejected, "match_over");
+});
+
+test("hearts and elimination survive saving", () => {
+  let s = createGame({ players: [{ id: "a", name: "A", lives: 1 }, { id: "b", name: "B" }] });
+  s = miss(s).state;
+  assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
+});
