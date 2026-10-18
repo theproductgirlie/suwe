@@ -512,8 +512,8 @@ mode("menu");
 view.hint = null;
 requestAnimationFrame(frame);
 
-// Debug hook for scripted runs: open with ?debug
-if (params.has("debug")) {
+// Debug hook for scripted runs: open with ?debug. Never on the live start.ng site.
+if (params.has("debug") && !onStartNg()) {
   window.__suwe = {
     get game() {
       return game;

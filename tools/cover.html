@@ -1,0 +1,103 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>cover</title>
+<style>
+  html, body { margin: 0; background: #000; }
+  canvas { display: block; width: 1600px; height: 1000px; }
+</style>
+<canvas id="c" width="1600" height="1000"></canvas>
+<script type="module">
+  import { drawCharacter, STOCK, DEFAULT_STYLE } from "/js/render/character.js";
+
+  const c = document.getElementById("c");
+  const ctx = c.getContext("2d");
+  const W = 1600, H = 1000;
+
+  // sky
+  const sky = ctx.createLinearGradient(0, 0, 0, 420);
+  sky.addColorStop(0, "#4dabf7");
+  sky.addColorStop(1, "#ffe8a3");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(255,244,180,0.95)";
+  ctx.beginPath(); ctx.arc(1380, 130, 90, 0, 7); ctx.fill();
+
+  function tree(x, base, s) {
+    ctx.fillStyle = "#6b4a2b";
+    ctx.beginPath(); ctx.roundRect(x - 14 * s, base - 150 * s, 28 * s, 150 * s, 8 * s); ctx.fill();
+    for (const [dx, dy, r, col] of [[0, -200, 80, "#2b8a3e"], [-55, -160, 60, "#2f9e44"], [55, -165, 60, "#37b24d"], [0, -250, 55, "#40c057"]]) {
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + dx * s, base + dy * s, r * s, 0, 7); ctx.fill();
+    }
+  }
+  tree(170, 470, 1.5);
+  tree(1450, 470, 1.4);
+
+  // compound wall
+  const wt = 360, wh = 150;
+  ctx.fillStyle = "#f1d8a5"; ctx.fillRect(0, wt, W, wh);
+  ctx.strokeStyle = "rgba(120,80,30,0.25)"; ctx.lineWidth = 2;
+  for (let r = 0; r < 3; r++) {
+    const y = wt + (wh / 3) * r;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    for (let i = r % 2 ? -0.5 : 0; i < 13; i++) { ctx.beginPath(); ctx.moveTo(i * 130, y); ctx.lineTo(i * 130, y + wh / 3); ctx.stroke(); }
+  }
+  ctx.fillStyle = "#c79a5b"; ctx.fillRect(0, wt - 10, W, 14);
+  ctx.fillStyle = "#2b8a3e"; ctx.fillRect(0, wt + wh - 14, W, 14);
+
+  // sandy ground
+  const g = ctx.createLinearGradient(0, wt + wh, 0, H);
+  g.addColorStop(0, "#d9b779"); g.addColorStop(1, "#e9cf99");
+  ctx.fillStyle = g; ctx.fillRect(0, wt + wh, W, H - wt - wh);
+
+  // the court, in perspective, on the right-hand side
+  const cx = 1130, top = 560, bot = 960, nearW = 560, farW = 400;
+  const P = (x, y) => { const t = y / 6; const w = nearW + (farW - nearW) * t; return [cx + (x - 1) * (w / 2), bot - t * (bot - top)]; };
+  const poly = (pts) => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); };
+  poly([P(0, 0), P(2, 0), P(2, 6), P(0, 6)]); ctx.fillStyle = "#e2c488"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 8; ctx.lineCap = "round";
+  for (let i = 0; i <= 6; i++) { const a = P(0, i), b = P(2, i); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); }
+  for (let i = 0; i <= 2; i++) { const a = P(i, 0), b = P(i, 6); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const cell = (n) => (n <= 6 ? [0.5, n - 0.5] : [1.5, 12 - n + 0.5]);
+  const owners = { 3: "#e03131", 9: "#1971c2", 11: "#e03131" };
+  for (let n = 1; n <= 12; n++) {
+    const [x, y] = cell(n);
+    if (owners[n]) {
+      poly([P(x - 0.5, y - 0.5), P(x + 0.5, y - 0.5), P(x + 0.5, y + 0.5), P(x - 0.5, y + 0.5)]);
+      ctx.fillStyle = owners[n] + "66"; ctx.fill();
+      ctx.strokeStyle = owners[n]; ctx.lineWidth = 6; ctx.stroke();
+    }
+    const [px, py] = P(x, y);
+    ctx.font = "800 52px 'Trebuchet MS', system-ui, sans-serif";
+    ctx.strokeStyle = "rgba(90,60,20,0.35)"; ctx.lineWidth = 6; ctx.strokeText(String(n), px, py);
+    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.fillText(String(n), px, py);
+  }
+
+  // children: a hopper in the court, friends watching, the player in front
+  const hop = P(0.5, 3.4);
+  drawCharacter(ctx, { ...STOCK[0].style, primaryColor: "#e03131" }, hop[0], hop[1] + 24, 1.55, { back: true, oneLeg: true, lift: 18 });
+  drawCharacter(ctx, STOCK[1].style, 930, 552, 1.0, {});
+  drawCharacter(ctx, STOCK[3].style, 985, 546, 0.95, {});
+  drawCharacter(ctx, STOCK[2].style, 1300, 548, 0.95, {});
+  drawCharacter(ctx, { ...STOCK[4].style, primaryColor: "#1971c2" }, 800, 975, 1.7, { back: true, ring: "#1971c2" });
+
+  // stone in the air above square 1
+  const s1 = P(0.5, 0.5);
+  ctx.fillStyle = "rgba(40,25,10,0.25)"; ctx.beginPath(); ctx.ellipse(s1[0] + 40, s1[1] + 12, 22, 9, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = "#6c757d"; ctx.beginPath(); ctx.ellipse(s1[0] + 40, s1[1] - 70, 20, 16, 0, 0, 7); ctx.fill();
+
+  // title panel on the left
+  ctx.save();
+  ctx.fillStyle = "rgba(255,254,250,0.9)";
+  ctx.beginPath(); ctx.roundRect(70, 560, 640, 360, 36); ctx.fill();
+  ctx.restore();
+  ctx.textAlign = "left";
+  ctx.font = "900 210px 'Trebuchet MS', system-ui, sans-serif";
+  ctx.lineWidth = 18; ctx.strokeStyle = "#fff"; ctx.strokeText("SUWE", 102, 700);
+  ctx.fillStyle = "#2b8a3e"; ctx.fillText("SUWE", 102, 700);
+  ctx.font = "800 46px 'Trebuchet MS', system-ui, sans-serif";
+  ctx.fillStyle = "#3b2a14"; ctx.fillText("The Nigerian hopping game", 108, 810);
+  ctx.font = "800 36px 'Trebuchet MS', system-ui, sans-serif";
+  ctx.fillStyle = "#c92a2a"; ctx.fillText("Throw. Hop. Ra Ile. Buy house!", 108, 868);
+  document.title = "ready";
+</script>

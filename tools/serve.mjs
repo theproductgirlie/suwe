@@ -5,6 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(fileURLToPath(new URL(".", import.meta.url)), "..", "docs");
+const toolsRoot = join(root, "..", "tools");
 const port = Number(process.env.PORT) || 5173;
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -21,7 +22,10 @@ createServer(async (req, res) => {
   const rel = normalize(path.endsWith("/") ? path + "index.html" : path);
   if (rel.includes("..")) return res.writeHead(400).end();
   try {
-    const body = await readFile(join(root, rel));
+    // /_tools/* serves the tools folder locally (the cover page); never part of the published game.
+    const body = rel.startsWith("/_tools/")
+      ? await readFile(join(toolsRoot, rel.slice("/_tools/".length)))
+      : await readFile(join(root, rel));
     res.writeHead(200, { "Content-Type": types[extname(rel)] ?? "application/octet-stream" });
     res.end(body);
   } catch {

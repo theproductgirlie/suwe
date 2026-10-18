@@ -7,7 +7,7 @@ import { join } from "node:path";
 const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function launch({ width = 390, height = 844, url }) {
+export async function launch({ width = 390, height = 844, url, scale = 2, mobile = true }) {
   const port = 9400 + Math.floor(process.pid % 500);
   const profile = mkdtempSync(join(tmpdir(), "suwe-chrome-"));
   const chrome = spawn(
@@ -48,8 +48,8 @@ export async function launch({ width = 390, height = 844, url }) {
 
   await send("Runtime.enable");
   await send("Log.enable");
-  await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: true });
-  await send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: scale, mobile });
+  if (mobile) await send("Emulation.setTouchEmulationEnabled", { enabled: true });
   await send("Page.navigate", { url });
   await sleep(1500);
 
