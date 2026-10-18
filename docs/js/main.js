@@ -1,5 +1,5 @@
 import { createScene } from "./render/scene.js";
-import { DEFAULT_STYLE } from "./render/character.js";
+import { DEFAULT_STYLE, STOCK } from "./render/character.js";
 import { createDirector } from "./director.js";
 import {
   createGame,
@@ -15,7 +15,14 @@ const $ = (id) => document.getElementById(id);
 const canvas = $("stage");
 const scene = createScene(canvas);
 
-let game = createGame({ seed: Date.now() >>> 0, players: [{ id: "you", name: "You" }] });
+// Pass-and-play for now: you, then a second player on the same phone.
+const PLAYERS = [
+  { id: "you", name: "You" },
+  { id: "p2", name: STOCK[1].name },
+];
+const styles = { you: DEFAULT_STYLE, p2: STOCK[1].style };
+const newGame = () => createGame({ seed: Date.now() >>> 0, players: PLAYERS });
+let game = newGame();
 
 // --- toast (voice line bubble) --------------------------------------------------
 let toastTimer;
@@ -31,8 +38,25 @@ const director = createDirector({
   style: DEFAULT_STYLE,
   say,
   onFlash: (f) => (director.view.flash = { ...f, t0: performance.now(), dur: 700 }),
+  onTurn: (id) => startTurn(id),
 });
 const view = director.view;
+
+// Whose turn it is: they take the court, the others wait beside the start.
+function applyLooks() {
+  const id = game.players[game.current].id;
+  view.hero.style = styles[id];
+  view.waiting = game.players
+    .filter((p) => p.id !== id)
+    .map((p, i) => ({ style: styles[p.id], x: 1.7 + i * 0.5, y: -1.1 }));
+}
+
+function startTurn(id) {
+  const me = game.players.find((p) => p.id === id);
+  applyLooks();
+  say(`Oya, ${me.name === "You" ? "your turn" : `${me.name}, your turn`}`);
+  refreshHud();
+}
 
 function fit() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -49,29 +73,27 @@ for (let n = 1; n <= 12; n++) {
   pips.append(d);
 }
 
-const HINTS = {
-  throw: "Drag the stone back, then let go to throw",
-  hop: "Tap the glowing square when the needle is in the green",
-  pickup: "Tap Pick up when the needle is in the green",
-};
+function hintText(e) {
+  if (e.kind === "throw") return "Drag the stone back, then let go to throw";
+  if (e.kind === "pickup") return "Tap Pick up when the needle is in the green";
+  if (e.needsTiming) return "Big jump! Tap the glowing square with the needle in the green";
+  return e.to === "start" ? "Tap HOME to finish" : "Tap the glowing square";
+}
 
 let meterStart = performance.now();
 let lastKey = "";
 
 function refreshHud() {
   const p = game.players[game.current];
-  $("target").textContent = `Target ${p.target}`;
+  $("target").textContent = `${p.name} · Target ${p.target}`;
   $("turn").textContent = `Turn ${game.turnNo}${p.circuits ? ` · Round ${p.circuits + 1}` : ""}`;
   [...pips.children].forEach((d, i) => d.classList.toggle("done", i + 1 < p.target));
   [...pips.children].forEach((d, i) => d.classList.toggle("now", i + 1 === p.target));
-  $("hint").textContent = HINTS[game.phase];
-  $("pickup").hidden = game.phase !== "pickup";
-  $("meter").hidden = game.phase === "throw";
-  if (game.phase !== "throw") {
-    const e = expectation(game);
-    $("zone").style.width = `${e.zone * 100}%`;
-  }
   const e = expectation(game);
+  $("hint").textContent = hintText(e);
+  $("pickup").hidden = game.phase !== "pickup";
+  $("meter").hidden = !e.needsTiming;
+  if (e.needsTiming) $("zone").style.width = `${e.zone * 100}%`;
   view.hint = e.kind === "throw" ? e.target : e.kind === "hop" ? e.to : null;
   // Restart the needle for each new thing to do.
   const key = `${game.turnNo}:${game.phase}:${game.turn?.i ?? ""}`;
@@ -83,7 +105,7 @@ function refreshHud() {
 
 function needle(now) {
   const p = game.players[game.current];
-  const period = 2300 - 80 * p.target;
+  const period = 2800 - 60 * p.target;
   return Math.sin(((now - meterStart) / period) * Math.PI * 2);
 }
 
@@ -127,7 +149,10 @@ canvas.addEventListener("pointerdown", (e) => {
     moveDrag(e);
   } else if (game.phase === "hop") {
     const sq = scene.hitSquare(e.clientX, e.clientY);
-    if (sq !== null) submit({ type: "hop", square: sq, timing: needle(performance.now()) });
+    // A stray tap on some other square is ignored. Only the stone's square
+    // (a real mistake in Suwe) or the glowing one counts.
+    const ok = sq === expectation(game).to || sq === game.stone?.square;
+    if (sq !== null && ok) submit({ type: "hop", square: sq, timing: needle(performance.now()) });
   }
 });
 
@@ -159,11 +184,10 @@ $("pickup").addEventListener("click", () => {
 });
 
 $("reset").addEventListener("click", () => {
-  game = createGame({ seed: Date.now() >>> 0, players: [{ id: "you", name: "You" }] });
+  game = newGame();
   director.home();
   lastKey = "";
-  refreshHud();
-  say("Oya, your turn");
+  startTurn("you");
 });
 
 // --- frame loop ---------------------------------------------------------------------
@@ -176,15 +200,14 @@ function frame(t) {
     refreshHud();
   }
   wasBusy = busy;
-  if (game.phase !== "throw" && !busy) {
+  if (!$("meter").hidden && !busy) {
     const n = needle(t);
     $("needle").style.left = `${50 + n * 50}%`;
   }
   scene.draw(view, t);
   requestAnimationFrame(frame);
 }
-refreshHud();
-say("Oya, your turn");
+startTurn("you");
 requestAnimationFrame(frame);
 
 // Debug hook for scripted runs: open with ?debug
@@ -214,7 +237,8 @@ const card = {
 card.signIn.href = signInUrl();
 
 function showPlayer(p) {
-  view.hero.style = p.style ?? DEFAULT_STYLE;
+  styles.you = p.style ?? DEFAULT_STYLE;
+  applyLooks();
   card.name.textContent = p.name;
   card.account.textContent = p.account ? `@${p.account}` : "Not signed in";
   if (p.face) card.face.src = p.face;

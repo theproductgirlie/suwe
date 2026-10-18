@@ -133,9 +133,10 @@ test("failure resumes at the same target and keeps progress", () => {
   s = playCourse(applyMove(s, throwSquare(1)).state).state; // target 2
   s = playCourse(applyMove(s, throwSquare(2)).state).state; // target 3
   s = applyMove(s, throwSquare(3)).state; // stone down
-  const bad = applyMove(s, { type: "hop", square: 1, timing: 0 }); // wrong order: first hop is 1, allowed
-  assert.equal(bad.state.phase, "hop");
-  const stumble = applyMove(bad.state, { type: "hop", square: 2, timing: 0.99 });
+  s = applyMove(s, { type: "hop", square: 1, timing: 0 }).state;
+  s = applyMove(s, { type: "hop", square: 2, timing: 0 }).state;
+  assert.equal(s.phase, "hop");
+  const stumble = applyMove(s, { type: "hop", square: 4, timing: 0.99 }); // the jump over the stone
   assert.equal(stumble.events.find((e) => e.type === "fail").reason, "balance");
   assert.equal(stumble.state.players[0].target, 3, "resumes at the target where it failed");
   assert.equal(stumble.state.phase, "throw");
@@ -153,8 +154,22 @@ test("stepping in the stone's square or out of order ends the turn", () => {
   assert.equal(tooEarlyHome.events.find((e) => e.type === "fail").reason, "sequence");
 });
 
+test("ordinary hops need no timing; only the jump over the stone does", () => {
+  const g = createGame();
+  g.players[0].target = 3;
+  let s = applyMove(g, throwSquare(3)).state; // route: 1, 2, 4 (jump), 5...
+  assert.equal(expectation(s).needsTiming, false);
+  s = applyMove(s, { type: "hop", square: 1, timing: 0.99 }).state;
+  assert.equal(s.phase, "hop", "a wild needle does not matter on a normal hop");
+  s = applyMove(s, { type: "hop", square: 2, timing: -0.99 }).state;
+  assert.equal(expectation(s).needsTiming, true);
+  const r = applyMove(s, { type: "hop", square: 4, timing: 0.99 });
+  assert.equal(r.events.find((e) => e.type === "fail").reason, "balance");
+});
+
 test("timing: green zone passes, slightly off hits a line, far off loses balance", () => {
-  const s = applyMove(createGame(), throwSquare(1)).state;
+  const s = applyMove(createGame(), throwSquare(1)).state; // first hop is the jump over square 1
+  assert.equal(expectation(s).needsTiming, true);
   const zone = expectation(s).zone;
   const run = (timing) => applyMove(s, { type: "hop", square: 2, timing });
   assert.equal(run(zone * 0.9).state.phase, "hop");
@@ -167,7 +182,7 @@ test("harder squares and skips need better timing", () => {
   assert.ok(balanceZone(12) < balanceZone(1));
   assert.ok(balanceZone(5, { skip: true }) < balanceZone(5));
   assert.ok(balanceZone(5, { pickup: true }) < balanceZone(5));
-  assert.ok(balanceZone(12, { skip: true, pickup: true }) >= 0.15);
+  assert.ok(balanceZone(12, { skip: true, pickup: true }) >= 0.25);
 });
 
 test("pickup with bad timing loses balance and fails the turn", () => {

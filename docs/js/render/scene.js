@@ -334,6 +334,10 @@ export function createScene(canvas) {
     if (view.flash) drawFlash(view.flash, time);
     if (view.stone) drawStone(view.stone);
     if (view.aim) drawAim(view.aim, time);
+    for (const w of view.waiting ?? []) {
+      const wp = project(w.x, w.y);
+      drawCharacter(ctx, w.style, wp.x, wp.y, charScale(0), { back: true, bob: Math.sin(time / 500) });
+    }
     const h = view.hero;
     const pos = project(h.x, h.y);
     const cs = charScale(Math.max(0, h.y));

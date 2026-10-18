@@ -24,7 +24,7 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash }) {
+export function createDirector({ style, say, onFlash, onTurn }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
@@ -199,7 +199,7 @@ export function createDirector({ style, say, onFlash }) {
             run() {},
             end() {
               home();
-              say("Oya, your turn");
+              onTurn(e.next);
             },
           });
           break;

@@ -6,7 +6,7 @@
 //
 // Moves:
 //   { type: "throw",  angle, power }     angle in radians (0 = straight up the court), power 0..1
-//   { type: "hop",    square, timing }   square is 1..12 or "start"; timing in -1..1 (balance needle)
+//   { type: "hop",    square, timing }   square is 1..12 or "start"; timing in -1..1, only judged on a jump over the stone
 //   { type: "pickup", timing }
 //
 // Events (for the renderer to animate; the engine never waits on them):
@@ -77,13 +77,14 @@ export function buildSteps(T) {
 
 // --- balance ------------------------------------------------------------------
 
-// Half-width of the green zone on the -1..1 balance needle. Higher squares and
-// jumps over the stone's square are harder.
+// Half-width of the green zone on the -1..1 balance needle. Only the big jump
+// over the stone's square and the pickup need it; ordinary hops are just taps.
+// Higher squares get a narrower zone.
 export function balanceZone(target, { skip = false, pickup = false } = {}) {
-  let w = 0.55 - 0.03 * target;
-  if (skip) w *= 0.8;
-  if (pickup) w *= 0.75;
-  return Math.max(0.15, w);
+  let w = 0.7 - 0.025 * target;
+  if (skip) w *= 0.85;
+  if (pickup) w *= 0.9;
+  return Math.max(0.25, w);
 }
 
 // null = steady. "line" = a bit off, foot lands on a chalk line. "balance" = way off.
@@ -99,9 +100,14 @@ export function expectation(state) {
   if (state.phase === "throw") return { kind: "throw", target: p.target };
   const step = state.turn.steps[state.turn.i];
   if (state.phase === "pickup") {
-    return { kind: "pickup", zone: balanceZone(p.target, { pickup: true }) };
+    return { kind: "pickup", needsTiming: true, zone: balanceZone(p.target, { pickup: true }) };
   }
-  return { kind: "hop", to: step.to, zone: balanceZone(p.target, { skip: step.skip }) };
+  return {
+    kind: "hop",
+    to: step.to,
+    needsTiming: step.skip,
+    zone: balanceZone(p.target, { skip: step.skip }),
+  };
 }
 
 export function accuracy(player) {
@@ -196,7 +202,7 @@ export function applyMove(prev, move) {
       const reason = s.stone && sq === s.stone.square ? "stone_square" : "sequence";
       return fail(s, events, reason, sq === "start" ? null : pointOf(sq));
     }
-    const reason = judge(move.timing, balanceZone(p.target, { skip: step.skip }));
+    const reason = step.skip ? judge(move.timing, balanceZone(p.target, { skip: true })) : null;
     if (reason) {
       const dest = pointOf(step.to);
       if (reason === "balance") return fail(s, events, reason, dest);

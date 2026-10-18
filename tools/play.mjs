@@ -84,48 +84,59 @@ async function playCourse(shots = false) {
   }
 }
 
+const g = (path) => ev(`__suwe.game.${path}`);
+
 await sleep(500);
-check((await phase()) === "throw" && (await target()) === 1, "starts at throw phase, target 1");
+check((await phase()) === "throw" && (await g("current")) === 0, "starts at throw phase, player 1");
 await b.shot("shots/s2-1-start.png");
 
-// 1. A bad throw (into square 4) ends the turn and keeps target 1.
+// 1. Player 1 throws into the wrong square: miss, turn passes to player 2, target kept.
 await throwAt(4);
 await idle();
-check((await phase()) === "throw" && (await target()) === 1, "miss: still target 1, back to throwing");
-check((await ev("__suwe.game.turnNo")) === 2, "miss: turn counter advanced");
+check((await g("current")) === 1, "miss: turn passed to player 2");
+check((await g("players[0].target")) === 1 && (await g("turnNo")) === 2, "miss: player 1 keeps target 1");
+await b.shot("shots/s2-2-player2.png");
 
-// 2. A good throw into square 1, with a screenshot of the aim.
-await throwAt(1, { shoot: "shots/s2-2-aim.png" });
+// 2. Player 2 throws into square 1 (with a shot of the aim), then hops the course.
+await throwAt(1, { shoot: "shots/s2-3-aim.png" });
 await sleep(350);
-await b.shot("shots/s2-3-stone-flying.png");
+await b.shot("shots/s2-4-stone-flying.png");
 await idle();
-check((await phase()) === "hop", "good throw into square 1 starts the hop phase");
-await b.shot("shots/s2-4-after-throw.png");
-
-// 3. Hop the whole course with good timing.
+check((await phase()) === "hop", "good throw starts the hop phase");
 await playCourse(true);
 await idle();
-check((await phase()) === "throw", "course finished, back to throwing");
-check((await target()) === 2, "target advanced to square 2");
-check((await ev("__suwe.game.turnNo")) === 2, "clean course kept the turn");
+check((await phase()) === "throw" && (await g("players[1].target")) === 2, "player 2 cleared square 1, target is now 2");
+check((await g("current")) === 1, "a clean course keeps the turn");
 await b.shot("shots/s2-5-after-course.png");
 
-// 4. Throw at 2, then fail the first hop by tapping with the needle in the red.
+// 3. Player 2 throws at 2, hops 1 (no timing needed), then fails the big jump in the red.
 await throwAt(2);
 await idle();
-for (let i = 0; i < 400; i++) {
+check((await ev("__suwe.zone()")) > 0, "zone available");
+await tapWhenGreen(1);
+await idle();
+check((await g("turn.i")) === 1 && (await g("current")) === 1, "ordinary hop went through");
+for (let i = 0; i < 600; i++) {
   const [n, z] = [await ev("__suwe.needle()"), await ev("__suwe.zone()")];
   if (Math.abs(n) > Math.min(0.97, z * 2.2)) break;
   await sleep(10);
 }
-const first = await ev(`(() => { const s = __suwe.game.turn.steps[0].to; return s })()`);
-const pos = await ev(`__suwe.px(${first <= 6 ? 0.5 : 1.5}, ${first <= 6 ? first - 0.5 : 12 - first + 0.5})`);
+const pos = await ev("__suwe.px(0.5, 2.5)"); // square 3, the jump over the stone in 2
 await b.tap(pos.x, pos.y);
 await sleep(500);
 await b.shot("shots/s2-6-fail.png");
 await idle();
-check((await phase()) === "throw" && (await target()) === 2, "fail: resumes at the same target (2)");
-check((await ev("__suwe.game.players[0].stats.mistakes")) === 2, "mistakes counted (2)");
+check((await g("current")) === 0, "fail: turn passed back to player 1");
+check((await g("players[1].target")) === 2, "fail: player 2 resumes at target 2 next time");
+await b.shot("shots/s2-7-player1.png");
+
+// 4. Player 1 plays a clean course on their own target 1.
+await throwAt(1);
+await idle();
+await playCourse();
+await idle();
+check((await g("players[0].target")) === 2 && (await g("current")) === 0, "player 1 advanced to 2 and kept the turn");
+check((await g("players[1].target")) === 2, "player 2 progress untouched");
 
 console.log(b.problems.length ? `PROBLEMS:\n${b.problems.join("\n")}` : "no console errors");
 await b.close();
