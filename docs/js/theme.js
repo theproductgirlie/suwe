@@ -2,7 +2,7 @@
 // page. `watchTheme` calls back when the theme changes (a `data-theme` or class on <html>, or an
 // edited style attribute), so a theme switch repaints the court and the children too.
 
-const KEYS = ["sky", "bg", "card", "line", "ink", "soft", "primary", "shade", "accent", "accent-ink", "court", "chalk", "danger"];
+const KEYS = ["sky", "bg", "card", "white", "line", "ink", "soft", "primary", "shade", "accent", "accent-ink", "court", "chalk", "danger", "p1", "p2", "p3", "p4", "p5", "p6"];
 
 // Plain fallbacks (the Golden hour values) for when the stylesheet has not loaded.
 const FALLBACK = {
@@ -19,6 +19,13 @@ const FALLBACK = {
   court: "#e2a866",
   chalk: "#fff9f1",
   danger: "#d7263d",
+  white: "#ffffff",
+  p1: "#e03131",
+  p2: "#1971c2",
+  p3: "#f08c00",
+  p4: "#7048e8",
+  p5: "#0ca678",
+  p6: "#d6336c",
 };
 
 export function readTheme() {
@@ -27,6 +34,12 @@ export function readTheme() {
   for (const k of KEYS) theme[k] = css.getPropertyValue(`--${k}`).trim() || FALLBACK[k];
   return theme;
 }
+
+// The six player colours, in order.
+export const playerColors = () => {
+  const t = readTheme();
+  return [t.p1, t.p2, t.p3, t.p4, t.p5, t.p6];
+};
 
 export function watchTheme(onChange) {
   let last = JSON.stringify(readTheme());

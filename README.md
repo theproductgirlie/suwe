@@ -12,7 +12,8 @@ Frontend only: the playable game is the static site in `docs/`.
   renderer, kept as the fallback when WebGL is missing and for comparison (`?renderer=2d`). `character.js` draws the characters from start.ng style fields.
 - `docs/css/theme.css` the one place the look is set ("Golden hour"): change a variable there, or set another theme on `<html>`,
   and every screen, the 3D court, the ground and the children's shoes, eyes and stone follow (`docs/js/theme.js` reads it for the scene).
-  The six player colours are data, not theme, so they stay the same.
+  The six player colours (`--p1` to `--p6`) live there too.
+- `docs/js/ring.js` the throw: the ring's path and pace, the random miss, and turning a place on the court into the engine's angle and power (tested).
 - `docs/js/director.js` turns engine events into animation and sound.
 - `docs/js/audio.js` music and effects, synthesised with Web Audio (no audio files).
 - `docs/js/tutorial.js`, `setup.js`, `main.js` the How to Play slides, the "Who's playing?" screen, and the app.
@@ -27,7 +28,7 @@ Frontend only: the playable game is the static site in `docs/`.
 
 ## Rules in short
 
-Throw the stone into the target square, hop through the other squares in order, turn, hop back, pick
+Press and hold the stone: a ring walks along the squares (1 to 12 and back, faster for higher squares and on Hard). Let go and the stone flies to where the ring was, plus a small random miss. Then hop through the other squares in order, turn, hop back, pick
 up the stone, hop home, then aim at the next square. A mistake ends your turn and costs a heart.
 After all 12 squares you throw backwards over your shoulder (Ra Ile) to buy a house. Most houses when
 every square is claimed wins; ties go to a closest-stone throw.

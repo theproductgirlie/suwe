@@ -23,7 +23,7 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, onFail = () => false, sfx = () => {} }) {
+export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, onFail = () => 3000, sfx = () => {} }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
@@ -31,6 +31,9 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, o
     aim: null,
     houses: [],
     mark: null,
+    redLine: null, // a chalk line to show in red after a foot or stone touched it: {y}
+    cleared: null, // squares to tint for the player on the court: {color, squares}
+    hold: null, // the ring and arc while a throw is held: set by main.js
     hero: {
       x: START_POINT.x,
       y: START_POINT.y,
@@ -47,6 +50,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, o
   const wait = (dur) => ({ dur, run() {} });
 
   function resetPose() {
+    view.redLine = null;
     Object.assign(pose, { back: true, oneLeg: false, lift: 0, bend: 0, tilt: 0, hold: false, facing: 1 });
   }
 
@@ -161,6 +165,16 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, o
               if (e.square) onFlash({ square: e.square, hit: e.hit });
             },
           });
+          // A short bounce, then the stone settles.
+          queue.push({
+            dur: 240,
+            run(p) {
+              view.stone = { x: e.to.x, y: e.to.y, h: Math.sin(Math.PI * p) * 26 * (1 - p) };
+            },
+            end() {
+              view.stone = { x: e.to.x, y: e.to.y, h: 0 };
+            },
+          });
           if (e.hit) queue.push({ dur: 1, run() {}, end: () => say("Now hop!", { tone: "good" }) });
           break;
         }
@@ -226,6 +240,16 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, o
             });
           }
           const dir = at && at.x > 1 ? -1 : 1;
+          if (/line/.test(e.reason)) {
+            // The chalk line nearest to where the child stands turns red.
+            queue.push({
+              dur: 1,
+              run() {},
+              start() {
+                view.redLine = { y: Math.max(0, Math.min(6, Math.round(view.hero.y))) };
+              },
+            });
+          }
           queue.push({
             dur: 520,
             start() {
@@ -239,12 +263,11 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, o
               pose.tilt = dir * 0.9 * easeOut(p);
             },
           });
-          // The "missed" card: onFail(e) says whether to wait for the player to press OK (a person's own
-          // miss, so they can read it) or to carry on by itself after a few seconds (the computer's).
-          const gate = { dur: 4000, run() {}, gate: true };
+          // The "missed" pill: onFail(e) says how many ms to show it (long enough to read).
+          const gate = { dur: 3000, run() {}, gate: true };
           gate.start = () => {
             released = false;
-            gate.dur = onFail(e) ? 1e9 : 4000;
+            gate.dur = onFail(e) || 3000;
           };
           queue.push(gate);
           break;

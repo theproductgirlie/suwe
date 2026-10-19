@@ -1,6 +1,6 @@
 import { DEFAULT_STYLE, normalizeStyle, drawCharacter } from "./render/character.js";
 import { icon, paintIcons, hearts, el } from "./ui.js";
-import { ROWS, squareCenter } from "./engine/court.js";
+import { COLS, ROWS, squareCenter, cellToSquare } from "./engine/court.js";
 import { createDirector } from "./director.js";
 import { createSetup, levelStars } from "./setup.js";
 import { createAudio } from "./audio.js";
@@ -9,12 +9,11 @@ import {
   createGame,
   applyMove,
   expectation,
-  resolveThrow,
   accuracy,
   THROW_ORIGIN,
-  MAX_ANGLE,
 } from "./engine/game.js";
 import { playAiMove } from "./engine/ai.js";
+import { ringPosition, spread, throwToward } from "./ring.js";
 import {
   MAX_LIVES,
   freshLives,
@@ -85,16 +84,16 @@ document.addEventListener(
 
 // A row in the pause menu / settings: icon, label, and a switch.
 const TOGGLES = {
-  music: { ico: "music", label: "Music" },
-  sfx: { ico: "volume", label: "Sound effects" },
-  voice: { ico: "chat", label: "Voice lines", note: 'Reads key phrases aloud, like "Try again"' },
+  music: { label: "Music" },
+  sfx: { label: "Sound effects" },
+  voice: { label: "Voice", note: "Reads key moments out loud" },
 };
 function paintToggle(btn, key, on) {
   const t = TOGGLES[key];
   const text = el("span");
   text.append(el("b", "", t.label));
   if (t.note) text.append(el("small", "", t.note));
-  btn.replaceChildren(icon(t.ico, 26), text, el("span", "switch"));
+  btn.replaceChildren(text, el("span", "switch"));
   btn.setAttribute("aria-checked", String(on));
 }
 
@@ -106,7 +105,7 @@ function renderAudioButtons() {
   }
   const quiet = !p.music && !p.sfx;
   const sb = $("sound-btn");
-  sb.replaceChildren(icon(quiet ? "mute" : "volume", 24), el("span", "btn-text", quiet ? "Sound off" : "Sound on"));
+  sb.replaceChildren(icon(quiet ? "mute" : "volume", 24));
   sb.setAttribute("aria-label", quiet ? "Turn sound on" : "Turn sound off");
 }
 $("opt-music").addEventListener("click", () => {
@@ -191,7 +190,7 @@ function renderLives(force) {
   lives = t;
   const next = msToNextLife(lives, now);
   const line = $("profile-lives");
-  line.replaceChildren(icon("heart", 15), document.createTextNode(`${lives.lives} of ${MAX_LIVES} lives${next ? ` · +1 in ${fmt(next)}` : ""}`));
+  line.replaceChildren(icon("heart", 15), document.createTextNode(`${lives.lives} ${lives.lives === 1 ? "life" : "lives"}${next ? ` · +1 in ${fmt(next)}` : ""}`));
 }
 setInterval(() => renderLives(), 1000);
 
@@ -247,18 +246,19 @@ function layoutScene() {
   const W = window.innerWidth;
   const H = window.innerHeight;
   const m = document.body.dataset.mode;
+  const cap = Math.min(W * 0.5, H * 0.3);
   if (m === "play") {
+    const hudBottom = $("hud").getBoundingClientRect().bottom;
     if (isDesktop()) {
-      scene.setLayout({ nearY: H - 215, farY: 150, cx: W / 2, maxCell: Math.min(W * 0.2, H * 0.22), pitch: 52 }, { ground: true });
+      scene.setLayout({ nearY: H * 0.7, farY: hudBottom + 30, cx: W / 2, maxCell: Math.min(W * 0.2, H * 0.31), pitch: 24 }, { ground: true });
     } else {
-      // Fixed by the screen height, not by the instruction card (whose height changes from hop to hop),
-      // so the court never moves while you play.
-      const top = $("hud").getBoundingClientRect().bottom + 26;
-      scene.setLayout({ nearY: Math.max(H * 0.5, top + 230), farY: top, cx: W / 2, maxCell: W * 0.4, pitch: 30 }, { ground: true });
+      // Fixed by the screen height, so the court never moves while you play.
+      const farY = hudBottom + 22;
+      scene.setLayout({ nearY: Math.max(H * 0.62, farY + 240), farY, cx: W / 2, maxCell: cap, pitch: 24 }, { ground: true });
     }
   } else if (m === "menu") {
-    if (isDesktop()) scene.setLayout({ nearY: H * 0.95, farY: H * 0.42, cx: W * 0.74, maxCell: H * 0.16, pitch: 44 }, { ground: false });
-    else scene.setLayout({ nearY: H * 0.97, farY: H * 0.58, cx: W / 2, maxCell: W * 0.34, pitch: 38 }, { ground: false });
+    if (isDesktop()) scene.setLayout({ nearY: H * 1.0, farY: H * 0.5, cx: W * 0.745, maxCell: Math.min(W * 0.17, H * 0.22), pitch: 30 }, { ground: false });
+    else scene.setLayout({ nearY: H * 0.62, farY: H * 0.37, cx: W * 0.45, maxCell: Math.min(W * 0.3, H * 0.2), pitch: 30 }, { ground: false });
   }
 }
 
@@ -272,22 +272,23 @@ fit();
 // The court's numbers use the bundled font: redraw once it has loaded.
 document.fonts?.load('800 40px "Baloo 2"').then(fit, () => {});
 
-// The home screen: the child stands on one leg by the court, with the stone beside them.
+// The home screen: the stone sits on square 1 and the child stands beside the court.
 function menuStage() {
   director.reset();
-  const desk = isDesktop();
   view.hero.style = normalizeStyle(me.style);
   view.hero.color = null;
   view.hero.sash = false;
-  view.hero.x = desk ? -0.75 : 1.0;
-  view.hero.y = desk ? 1.5 : ROWS + 0.5;
+  view.hero.x = COLS + 0.95;
+  view.hero.y = 1.5;
   Object.assign(view.hero.pose, { back: true, oneLeg: true, lift: 0, bend: 0, tilt: 0, hold: false, facing: 1 });
-  view.stone = { x: view.hero.x + (desk ? 0.8 : 0.85), y: view.hero.y - 0.05, h: 0 };
+  view.stone = { x: 0.72, y: 0.4, h: 0 };
   view.waiting = [];
   view.houses = [];
   view.hint = null;
   view.mark = null;
   view.flash = null;
+  view.cleared = null;
+  view.hold = null;
 }
 
 // Whose turn it is: they take the court, the others wait beside the start.
@@ -302,14 +303,15 @@ function applyLooks() {
       style: normalizeStyle(q.look),
       color: q.color,
       sash: q.sash,
-      x: 1.7 + i * 0.5,
-      y: -1.1,
+      x: 1.8 - i * 0.45,
+      y: -1.0,
     }));
 }
 
 let announced = false;
 function startTurn() {
-  hideMiss();
+  if (!game) return;
+  hidePill();
   applyLooks();
   const p = current();
   if (!skipping) {
@@ -318,77 +320,81 @@ function startTurn() {
   }
   announced = true;
   refreshHud();
+  showTurnCard();
 }
 
 // --- HUD ------------------------------------------------------------------------------------
-const pips = $("pips");
-for (let n = 1; n <= 12; n++) pips.append(document.createElement("i"));
-
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const LEVEL_NAME = { easy: "Easy", medium: "Medium", hard: "Hard" };
 
-// What the player is asked to do, as the "Your move" card.
-function moveInfo(e) {
+// The dark pill at the bottom: what to do now.
+function setBar(ico, title, sub, withSpace) {
+  $("bar-ico").replaceChildren(icon(ico, 28));
+  $("bar-title").textContent = title;
+  const small = $("bar-sub");
+  small.replaceChildren(document.createTextNode(sub));
+  if (withSpace && isDesktop()) {
+    small.replaceChildren(document.createTextNode("Hold the stone or "), el("kbd", "", "Space"), document.createTextNode(". The ring moves."));
+  }
+}
+
+function barInfo(e) {
   const p = current();
-  const desk = isDesktop();
-  const tap = desk ? "Click" : "Tap";
-  if (e.kind === "throw")
-    return { ico: "throw", kind: "Throw", title: `Throw at square ${e.target}`, desc: "Drag the stone back, then let go to throw.", tip: "Land inside the square without touching a chalk line" };
-  if (e.kind === "backthrow")
-    return { ico: "throw", kind: "Ra Ile", title: "Throw over your shoulder", desc: "Drag back and throw over your shoulder to buy a house.", tip: "Land on an empty square to buy a house" };
-  if (e.kind === "tiebreak")
-    return { ico: "throw", kind: "Tie-break", title: "Closest to the mark", desc: "Throw the stone closest to the red mark.", tip: "Drag back, then let go" };
-  if (e.kind === "pickup")
-    return { ico: "hand", kind: "Pick up", title: "Pick up the stone", desc: `${tap} Pick up when the needle is in the green.`, tip: "Wrong timing costs a heart" };
-  if (e.to === "start")
-    return { ico: "up", kind: "Hop", title: `${tap} HOME`, desc: "Hop home to finish the course.", tip: "Wrong square or a chalk line costs a heart" };
+  const tap = isDesktop() ? "Click" : "Tap";
+  if (e.kind === "throw") return { ico: "target", title: `Throw at square ${e.target}`, sub: isDesktop() ? "Hold the stone or Space, then let go" : "Hold the stone, then let go" };
+  if (e.kind === "backthrow") return { ico: "target", title: "Throw over your shoulder", sub: "Hold the stone, let go on an empty square" };
+  if (e.kind === "tiebreak") return { ico: "target", title: "Closest to the red mark", sub: "Hold the stone, let go near the mark" };
+  if (e.kind === "pickup") return { ico: "hand", title: "Pick up the stone", sub: "Press Pick up with the needle in the green" };
+  if (e.to === "start") return { ico: "up", title: `${tap} HOME`, sub: "Hop home to finish the course" };
   return {
     ico: "up",
-    kind: "Hop",
-    title: desk ? `Square ${e.to}` : `${tap} square ${e.to}`,
-    desc: e.needsTiming
-      ? `Jump over square ${p.target}. Your stone is there, so you can't step on it. ${tap} with the needle in the green.`
-      : `${tap} the glowing square.`,
-    tip: "Wrong square or a chalk line costs a heart",
+    title: `${tap} square ${e.to}`,
+    sub: e.needsTiming ? `Hop over ${p.target}, your stone is there` : "Hop to the glowing square",
   };
 }
 
-const LEVEL_NAME = { easy: "Easy", medium: "Medium", hard: "Hard" };
+// Show the right bottom bar: the dark pill for a person, the computer's controls, or nothing while a miss shows.
+function updateBar() {
+  if (!game) return;
+  const p = current();
+  const mine = !p.ai;
+  $("bar").hidden = !mine || pillShown;
+  $("watchbar").hidden = mine || pillShown;
+  if (!mine) {
+    const verb = game.phase === "hop" ? "hopping" : game.phase === "pickup" ? "picking up the stone" : "throwing";
+    $("watch-title").textContent = `${p.name} is ${verb}…`;
+    return;
+  }
+  const e = expectation(game);
+  const info = barInfo(e);
+  setBar(info.ico, info.title, info.sub);
+}
 
 function renderBoard() {
   const cur = current();
   const board = $("board");
-  board.className = players().length === 1 ? "solo" : "";
+  const many = players().length > 2;
   board.replaceChildren(
-    ...players().map((p, i) => {
-      const card = el("div", `pcard${p === cur ? " now" : ""}${p.out ? " out" : ""}`);
+    ...players().map((p) => {
+      const card = el("div", `pcard${p === cur ? " now" : ""}${p.out ? " out" : ""}${many ? " many" : ""}`);
       card.style.setProperty("--c", p.color ?? "#999");
-      card.append(el("span", "pbadge", `P${i + 1}`));
+      const face = el("span", "face");
+      const cv = el("canvas");
+      cv.width = cv.height = 72;
+      drawCharacter(cv.getContext("2d"), normalizeStyle(p.look), 36, 96, 1.0, { back: false, shadow: false });
+      face.append(cv);
       const info = el("div", "pinfo");
-      const name = el("div", "pname");
-      name.append(el("span", "n-short", i === 0 && !p.ai ? "You" : p.name), el("span", "n-full", p.name));
-      if (p.ai) name.append(el("span", "cpu", `· CPU`));
-      info.append(name);
-      const status = p.out ? "Out of hearts" : p === cur ? "Playing now" : p.ai ? `Computer · ${LEVEL_NAME[p.ai] ?? ""}` : "Up next";
-      info.append(el("div", "pstatus", p === cur && p.ai ? `Playing now · Computer` : status));
+      info.append(el("div", "pname", i0(p) === 0 && !p.ai && !solo() ? "You" : p.name));
       const stats = el("div", "pstats");
-      stats.append(hearts(p.lives, MAX_LIVES));
-      const houses = el("span", "houses");
-      houses.append(icon("house", 18), el("span", "h-n", String(p.houses.length)), el("span", "h-label", p.houses.length === 1 ? " house" : " houses"));
-      stats.append(houses);
-      info.append(stats);
-      const prog = el("div", "pprog");
       const done = Math.max(0, Math.min(12, p.target - 1));
-      const head = el("div", "progress-head");
-      head.append(el("span", "", "Progress"), el("span", "", `${done} of 12`));
-      const segs = el("div", "segs");
-      for (let n = 1; n <= 12; n++) segs.append(el("i", n <= done ? "done" : n === done + 1 ? "now" : ""));
-      prog.append(head, segs);
-      info.append(prog);
-      card.append(info);
+      stats.append(icon("heart", 15), document.createTextNode(many ? `${p.lives} · ${done}/12` : `${p.lives} · ${done} of 12`));
+      info.append(stats);
+      card.append(face, info);
       return card;
     }),
   );
 }
+const i0 = (p) => players().findIndex((q) => q.id === p.id);
 
 let meterStart = performance.now();
 let lastKey = "";
@@ -398,57 +404,50 @@ function refreshHud() {
   const p = current();
   renderBoard();
   const mine = !p.ai;
-  const who = mine && (solo() || p === players()[0]) ? "Your" : `${p.name}'s`;
+  const who = mine && (solo() || p.id === players()[0].id) ? "Your" : `${p.name}'s`;
   const banner = $("banner");
-  banner.style.setProperty("--c", p.color ?? "#999");
-  banner.replaceChildren(document.createTextNode(`${who} turn`), el("small", "", `· ${solo() ? "Attempt" : "Turn"} ${game.turnNo}${p.circuits ? ` · Round ${p.circuits + 1}` : ""}`));
-  // Progress strip (phone): the player whose turn it is.
-  const done = Math.max(0, Math.min(12, p.target - 1));
-  $("progress").style.setProperty("--c", p.color ?? "#999");
-  $("progress-who").textContent = mine ? "Your progress" : `${p.name}'s progress`;
-  $("progress-count").textContent = `${done} of 12 squares`;
-  [...pips.children].forEach((d, i) => {
-    d.className = i < done ? "done" : i === done ? "now" : "";
-  });
-
+  banner.replaceChildren(el("i"), document.createTextNode(`${who} turn`));
+  banner.firstChild.style.setProperty("--c", p.color ?? "#999");
   const e = expectation(game);
-  // "Your move" for a person, "Watching" for the computer.
-  $("move-card").hidden = !mine;
-  $("watch-card").hidden = mine;
-  $("move-label").textContent = mine ? "Your move" : "Watching";
-  if (mine) {
-    const m = moveInfo(e);
-    $("move-icon").replaceChildren(icon(m.ico, 34));
-    $("move-kind").textContent = m.kind;
-    $("move-title").textContent = m.title;
-    $("move-desc").textContent = m.desc;
-    $("move-tip").replaceChildren(icon("heart", 18), document.createTextNode(m.tip));
-  } else {
-    const verb = game.phase === "hop" ? "hopping" : game.phase === "pickup" ? "picking up the stone" : "throwing";
-    const title = $("watch-title");
-    title.replaceChildren(document.createTextNode(`${p.name} is ${verb}`), el("span", "dots-anim"));
-    const sub = $("watch-sub");
-    sub.replaceChildren(document.createTextNode(`${LEVEL_NAME[p.ai] ?? ""} `), el("span", "stars", levelStars(p.ai)), document.createTextNode(` · on square ${p.target}`));
-    $("skip-note").textContent = `Skipping jumps straight to the result of ${p.name}'s turn. Nothing about the score changes.`;
-    const face = $("watch-face");
-    let cv = face.firstChild;
-    if (!cv) face.append((cv = el("canvas")));
-    cv.width = cv.height = 152;
-    const c = cv.getContext("2d");
-    c.clearRect(0, 0, 152, 152);
-    drawCharacter(c, normalizeStyle(p.look), 76, 176, 1.5, { back: false, shadow: false });
-  }
+  updateBar();
   $("pickup").hidden = !(mine && game.phase === "pickup");
   $("meter").hidden = !(mine && e.needsTiming);
   if (e.needsTiming) $("zone").style.width = `${e.zone * 100}%`;
   view.hint = e.kind === "throw" ? e.target : e.kind === "hop" ? e.to : null;
   view.mark = game.phase === "tiebreak" ? { x: e.mark.x, y: e.mark.y } : null;
+  // The squares this player has cleared, tinted in their colour.
+  const done = Math.max(0, Math.min(12, p.target - 1));
+  view.cleared = { color: p.color ?? "#999", squares: Array.from({ length: done }, (_, i) => i + 1) };
   const key = `${game.turnNo}:${game.phase}:${game.turn?.i ?? ""}`;
   if (key !== lastKey) {
     lastKey = key;
     meterStart = performance.now();
   }
   requestAnimationFrame(layoutScene);
+}
+
+// --- the card that opens a turn (2 seconds) -------------------------------------------------
+let turnCardTimer = null;
+let turnCardStart = 0;
+function showTurnCard() {
+  hideTurnCard();
+  if (!game || game.over || current().ai) return;
+  const e = expectation(game);
+  if (!["throw", "backthrow", "tiebreak"].includes(e.kind)) return;
+  const p = current();
+  const mine = solo() || p.id === players()[0].id;
+  $("turncard-kicker").textContent = mine ? "Your turn" : `${p.name}'s turn`;
+  const info = barInfo(e);
+  $("turncard-title").textContent = info.title;
+  $("turncard-sub").textContent = e.kind === "throw" ? (isDesktop() ? "Hold the stone or Space, then let go." : "Hold the stone, then let go.") : info.sub;
+  $("turncard").hidden = false;
+  turnCardStart = performance.now();
+  turnCardTimer = setTimeout(hideTurnCard, 2000);
+}
+function hideTurnCard() {
+  clearTimeout(turnCardTimer);
+  turnCardTimer = null;
+  $("turncard").hidden = true;
 }
 
 function needle(now) {
@@ -476,7 +475,8 @@ function commit(r) {
   game = r.state;
   syncHearts();
   saveMatch();
-  view.aim = null;
+  holdState = null;
+  view.hold = null;
   view.hint = null;
   $("meter").classList.add("locked");
   director.play(r.events);
@@ -496,76 +496,50 @@ function scheduleAi() {
   }, delay);
 }
 
-// --- the "missed" card -------------------------------------------------------------------
-const MISS = {
-  line_stone: ["On the line!", (who) => `${who} stone touched the chalk.`],
-  line: ["On the line!", (who) => `${who} foot touched the chalk.`],
-  miss: ["Missed the square!", (who) => `${who} stone did not land in the square.`],
-  stone_square: ["That's the stone's square!", () => "The square with the stone in it can't be stepped on."],
-  sequence: ["Wrong square!", () => "Hop to the glowing square next."],
-  balance: ["Lost your balance!", () => "The needle was out of the green."],
-  opponent_house: ["That's someone's house!", () => "A bought square can't be stepped on."],
-  outside: ["Out of the court!", () => "Stay inside the chalk."],
+// --- the "missed" pill -------------------------------------------------------------------
+const MISS_TITLE = {
+  line: (who) => `${who} stepped on a line`,
+  line_stone: (who) => `${who === "You" ? "Your" : `${who}'s`} stone touched a line`,
+  miss: (who) => `${who} missed the square`,
+  stone_square: (who) => `${who} hopped on the stone's square`,
+  sequence: (who) => `${who} hopped to the wrong square`,
+  balance: (who) => `${who} lost ${who === "You" ? "your" : "their"} balance`,
+  opponent_house: (who) => `${who} stepped in someone's house`,
+  outside: (who) => `${who} went off the court`,
 };
-let missShown = false;
-// Returns true when the card waits for the player to press OK (their own miss), false when it carries on by itself.
-let missAuto = false;
+let pillShown = false;
+// Called when someone misses. Returns how long (ms) to show the pill, long enough to read.
 function showMiss(e) {
-  if (skipping || !game) return false;
+  if (skipping || !game) return 0;
   const failed = actor ?? current();
-  const failer = players().find((q) => q.id === failed.id) ?? failed; // the new state's copy
+  const failer = players().find((q) => q.id === failed.id) ?? failed;
   const human = !failer.ai && (solo() || failer.id === players()[0].id);
-  const who = human ? "Your" : `${failer.name}'s`;
-  const [title, why] = MISS[e.reason] ?? ["Try again!", () => ""];
-  $("miss-title").textContent = title;
-  $("miss-why").textContent = `${why(who)} ${human ? "Your" : `${failer.name}'s`} turn ends.`.replace("  ", " ");
-  const row = $("miss-hearts");
+  const who = human ? "You" : failer.name;
+  $("pill-title").textContent = (MISS_TITLE[e.reason] ?? ((w) => `${w} missed`))(who);
   const left = Math.max(0, e.lives);
-  const h = hearts(left, MAX_LIVES);
-  if (left < MAX_LIVES) {
-    h.children[left].classList.remove("off");
-    h.children[left].classList.add("off");
-    h.children[left].append(el("span", "lost-badge", "−1"));
-  }
-  row.replaceChildren(...h.children);
-  $("miss-left").textContent = isDesktop() ? `${left} ${left === 1 ? "heart" : "hearts"} left` : `${left} left`;
-  $("miss-restart").textContent =
-    left === 0
-      ? `${human ? "You are" : `${failer.name} is`} out of hearts.`
-      : `Next turn ${human ? "you throw" : `${failer.name} throws`} again for square ${failer.target}.`;
   const next = game.over ? null : current();
-  $("miss-ok-text").textContent = solo() ? "OK, throw again" : `OK, ${next && next.id !== failer.id ? `${next.name}'s turn` : "go on"}`;
-  $("miss-art").replaceChildren(missArt());
-  // A person reads it and presses OK when ready. Only the computer's miss carries on by itself.
-  missAuto = !human;
-  $("miss-timer").hidden = human;
-  $("miss").hidden = false;
-  missShown = true;
-  if (missAuto) updateMissTimer(4000);
-  $("miss-ok").focus({ preventScroll: true });
-  return human;
+  let tail;
+  if (left === 0) tail = `${human ? "You have" : `${failer.name} has`} no hearts left.`;
+  else if (solo() || !next || next.id === failer.id) tail = "Throw again.";
+  else tail = `${next.id === players()[0].id && !next.ai ? "You play" : `${next.name} plays`} next.`;
+  $("pill-sub").textContent = `−1 heart. ${tail}`;
+  pillShown = true;
+  document.body.classList.add("pill");
+  $("pill").hidden = false;
+  updateBar();
+  return human ? 3300 : 2800;
 }
-function updateMissTimer(left) {
-  $("miss-bar").style.width = `${Math.max(0, Math.min(1, left / 4000)) * 100}%`;
-  $("miss-count").textContent = `Carries on in ${Math.max(1, Math.ceil(left / 1000))}s`;
+function hidePill() {
+  if (!pillShown) return;
+  pillShown = false;
+  document.body.classList.remove("pill");
+  $("pill").hidden = true;
+  updateBar();
 }
-function hideMiss() {
-  if (!missShown) return;
-  missShown = false;
-  $("miss").hidden = true;
-}
-function okMiss() {
-  if (!missShown) return;
-  director.release();
-}
-$("miss-ok").addEventListener("click", okMiss);
-
-// A stone on a chalk line, with a red cross: the picture on the missed card.
-function missArt() {
-  const wrap = document.createElement("span");
-  wrap.innerHTML = `<svg viewBox="0 0 110 110" aria-hidden="true"><circle cx="55" cy="58" r="46" fill="var(--sky)"/><rect x="16" y="62" width="78" height="9" rx="4.5" fill="var(--soft)" opacity=".45"/><ellipse cx="55" cy="57" rx="20" ry="12" fill="color-mix(in srgb, var(--ink) 55%, var(--chalk))"/><ellipse cx="49" cy="53" rx="6" ry="3.2" fill="var(--chalk)" opacity=".6"/><circle cx="84" cy="22" r="15" fill="var(--danger)" stroke="var(--card)" stroke-width="4"/><path d="m78 16 12 12M90 16 78 28" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>`;
-  return wrap.firstChild;
-}
+// Tapping the pill carries on straight away.
+$("pill").addEventListener("click", () => {
+  if (pillShown) director.release();
+});
 
 // --- skipping the computer's turn ------------------------------------------------------------
 function skipComputer() {
@@ -574,7 +548,7 @@ function skipComputer() {
   skipping = true;
   clearTimeout(aiTimer);
   aiTimer = null;
-  hideMiss();
+  hidePill();
   try {
     director.finish();
     for (let i = 0; i < 600 && game && !game.over && id === matchId && current().ai; i++) {
@@ -593,40 +567,61 @@ $("skip-btn").addEventListener("click", skipComputer);
 $("speed-btn").addEventListener("click", () => {
   fast = !fast;
   $("speed-btn").classList.toggle("on", fast);
-  $("speed-text").textContent = fast ? "2× speed on" : "2× speed";
+  $("speed-text").textContent = fast ? "2× faster · on" : "2× faster";
+  $("speed-btn").classList.toggle("on", fast);
 });
 
-// --- input --------------------------------------------------------------------------------------
-const MIN_POWER = 0.12;
-let drag = null;
-const humanTurn = () => game && !paused && !game.over && !director.busy && !current().ai;
+// --- input: press and hold the stone; a ring moves along the squares; let go to throw ----------
+const humanTurn = () => game && !paused && !game.over && !director.busy && !current().ai && !pillShown;
 
 function stonePx() {
   return scene.project(THROW_ORIGIN.x, THROW_ORIGIN.y);
 }
 
-function aimFrom(x, y) {
-  const s = stonePx();
-  const dirX = s.x - x;
-  const dirY = y - s.y;
-  if (dirY <= 4) return null; // must pull back (down the screen)
-  const maxDrag = window.innerHeight * 0.22;
-  const power = Math.min(1, Math.hypot(dirX, dirY) / maxDrag);
-  const angle = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, Math.atan2(dirX, dirY)));
-  return { power, angle };
-}
-
-// Each throwing phase uses the same drag; only the kind of move differs.
+// Each throwing phase works the same way; only the kind of move differs.
 const THROW_MOVE = { throw: "throw", ra_ile: "backthrow", tiebreak: "tiebreak" };
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// The ring and the small random miss (see ring.js). `level` is the computer's level in this match.
+const matchLevel = () => game?.players.find((q) => q.ai)?.ai ?? null;
+const ringOpts = () => ({ phase: game.phase, target: current().target, level: matchLevel() });
+const ringAt = (sec) => ringPosition(sec, ringOpts());
+
+let holdState = null; // { t0, id } while the stone is held (id: a pointer id, or "key")
+let ringOverride = null; // tests can pin the ring to a place (no random miss then)
+
+function startHold(id) {
+  if (holdState || !humanTurn() || !THROW_MOVE[game.phase]) return false;
+  hideTurnCard();
+  holdState = { t0: performance.now(), id };
+  return true;
+}
+function currentRing() {
+  return ringOverride ?? ringAt((performance.now() - holdState.t0) / 1000);
+}
+function endHold(cancel) {
+  if (!holdState) return;
+  const pos = currentRing();
+  holdState = null;
+  view.hold = null;
+  updateBar();
+  if (cancel || !humanTurn()) return;
+  let land = pos;
+  if (!ringOverride) {
+    const a = Math.random() * Math.PI * 2;
+    const r = spread(ringOpts()) * Math.sqrt(Math.random());
+    land = { x: pos.x + Math.cos(a) * r, y: pos.y + Math.sin(a) * r };
+  }
+  submit({ type: THROW_MOVE[game.phase], ...throwToward(land.x, land.y) });
+}
 
 canvas.addEventListener("pointerdown", (e) => {
   if (!humanTurn()) return;
   if (THROW_MOVE[game.phase]) {
     const s = stonePx();
-    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 64) return;
-    drag = e.pointerId;
-    canvas.setPointerCapture(e.pointerId);
-    moveDrag(e);
+    // The stone's touch area is at least 64 x 64 px (here a 60 px radius), clear of every other control.
+    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 60) return;
+    if (startHold(e.pointerId)) canvas.setPointerCapture(e.pointerId);
   } else if (game.phase === "hop") {
     // Any tap is a hop. The wrong square, the stone's square, someone's house or
     // somewhere off the court all count as a miss, whether meant or not.
@@ -634,29 +629,12 @@ canvas.addEventListener("pointerdown", (e) => {
     submit({ type: "hop", square: sq, timing: needle(performance.now()) });
   }
 });
-
-function moveDrag(e) {
-  const a = aimFrom(e.clientX, e.clientY);
-  view.aim = a
-    ? { origin: THROW_ORIGIN, fx: e.clientX, fy: e.clientY, land: resolveThrow(a), ...a }
-    : null;
-}
-
-canvas.addEventListener("pointermove", (e) => {
-  if (drag === e.pointerId) moveDrag(e);
+canvas.addEventListener("pointerup", (e) => {
+  if (holdState?.id === e.pointerId) endHold(false);
 });
-
-function endDrag(e, cancel) {
-  if (drag !== e.pointerId) return;
-  drag = null;
-  const a = aimFrom(e.clientX, e.clientY);
-  view.aim = null;
-  if (!cancel && a && a.power >= MIN_POWER) {
-    submit({ type: THROW_MOVE[game.phase], angle: a.angle, power: a.power });
-  }
-}
-canvas.addEventListener("pointerup", (e) => endDrag(e, false));
-canvas.addEventListener("pointercancel", (e) => endDrag(e, true));
+canvas.addEventListener("pointercancel", (e) => {
+  if (holdState?.id === e.pointerId) endHold(true);
+});
 
 $("pickup").addEventListener("click", () => {
   if (humanTurn() && game.phase === "pickup") submit({ type: "pickup", timing: needle(performance.now()) });
@@ -773,11 +751,6 @@ async function submitScore(g, result, elapsedMs) {
   }
 }
 
-let lbHasScores = null; // unknown until the board has been loaded once
-function renderLbHint() {
-  $("lb-hint").textContent = lbHasScores === false ? "Top spot is open" : "See the best wins";
-}
-
 function lbRow(cls, rank, face, name, sub, val) {
   const r = el("div", `lb-row ${cls}`);
   const who = el("div");
@@ -787,15 +760,15 @@ function lbRow(cls, rank, face, name, sub, val) {
   return r;
 }
 
-function fillPlaceholders(list) {
-  list.append(el("h4", "", "Places to win"));
-  ["This could be you", "Open", "Open", "Open", "Open"].forEach((n, i) => list.append(lbRow(i === 0 ? "first" : "open", i + 1, i === 0 ? "You?" : "", n, "", "–")));
-}
-
 // The board keeps each player's single best run, ranked by houses and then by computer level, so a
 // player shows on the tab of the level they set that best run on.
 let lbLevel = 2; // 2 = Medium, 3 = Hard
 const LB_NAME = { 2: "Medium", 3: "Hard" };
+
+function fillPlaceholders(list) {
+  const rows = isDesktop() ? 5 : 3;
+  for (let i = 0; i < rows; i++) list.append(lbRow(i === 0 ? "first open" : "open", i + 1, "", "Open", "", ""));
+}
 
 async function showLeaderboard() {
   const empty = $("lb-empty");
@@ -803,29 +776,27 @@ async function showLeaderboard() {
   const status = $("lb-status");
   for (const b of document.querySelectorAll("#lb-tabs .chip")) b.classList.toggle("on", Number(b.dataset.level) === lbLevel);
   empty.hidden = false;
-  $("lb-play").hidden = true;
+  document.querySelector(".lb-cta").hidden = true;
   list.replaceChildren();
   status.textContent = "Loading...";
   const reply = await loadLeaderboard(50);
   if (document.body.dataset.mode !== "leaderboard") return;
   if (!reply?.ok) {
     status.textContent = onStartNg() ? "Couldn't reach start.ng. Try again in a moment." : "The leaderboard works on suwe.start.ng.";
-    $("lb-play").hidden = false;
+    document.querySelector(".lb-cta").hidden = false;
     fillPlaceholders(list);
     return;
   }
   const all = reply.entries ?? [];
-  lbHasScores = all.length > 0;
-  renderLbHint();
   const entries = all.filter((e) => (e.stats?.level ?? 2) === lbLevel);
   if (!entries.length) {
-    status.textContent = `Beat the computer on ${LB_NAME[lbLevel]} and your win lands here first.${all.length ? "" : " Nobody on start.ng has done it yet."}`;
-    $("lb-play").hidden = false;
+    status.textContent = `Beat Tunde on ${LB_NAME[lbLevel]} to take the top spot.`;
+    document.querySelector(".lb-cta").hidden = false;
     fillPlaceholders(list);
     return;
   }
   empty.hidden = true;
-  list.append(el("h4", "", `Best wins on ${LB_NAME[lbLevel]}`));
+  document.querySelector(".lb-cta").hidden = true;
   entries.slice(0, 10).forEach((e, i) => {
     const st = e.stats ?? {};
     const initials = String(e.name ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
@@ -847,7 +818,10 @@ function mode(m) {
   for (const id of SCREENS) $(id).hidden = id !== m;
   if (m === "howto") tutorial.start();
   else tutorial.stop();
-  if (m !== "play") hideMiss();
+  if (m !== "play") {
+    hidePill();
+    hideTurnCard();
+  }
   if (m === "menu") {
     renderMenu();
     menuStage();
@@ -1014,18 +988,11 @@ function setPaused(on) {
     pausedAt = performance.now();
     clearTimeout(aiTimer);
     aiTimer = null;
-    drag = null;
-    view.aim = null;
+    holdState = null;
+    view.hold = null;
     saveMatch();
-    const others = players().filter((q) => q !== players()[0]);
-    $("pause-sub").textContent = `${others.length ? `vs ${others.map((q) => q.name).join(", ")}` : "Solo practice"} · Turn ${game.turnNo} · you're on square ${players()[0].target}`;
-    $("pause-dots").replaceChildren(
-      ...players().map((q) => {
-        const d = document.createElement("i");
-        d.style.background = q.color ?? "#999";
-        return d;
-      }),
-    );
+    const others = players().filter((q) => q.id !== players()[0].id);
+    $("pause-sub").textContent = `${others.length ? `You vs ${others.map((q) => q.name).join(", ")}` : "Solo practice"} · you're on square ${players()[0].target}`;
     renderAudioButtons();
   } else {
     meterStart += performance.now() - pausedAt; // the balance needle carries on from where it was
@@ -1054,7 +1021,7 @@ $("pause-leave").addEventListener("click", () => {
   mode("menu");
 });
 
-// --- keyboard (desktop): Esc pause, M sound, Space hop, S skip the computer, Enter continue ---
+// --- keyboard (desktop): Esc pause, M sound, Space hold to throw / hop, S skip the computer ---
 addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest?.("input, textarea, select")) return;
@@ -1062,16 +1029,21 @@ addEventListener("keydown", (e) => {
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (key === "Escape" && playing) setPaused(!paused);
   else if (key === "m" && playing) toggleMute();
-  else if (key === "Enter" && missShown) {
+  else if (key === "Enter" && pillShown) {
     e.preventDefault();
-    okMiss();
+    director.release();
   } else if (key === "s" && playing && !paused) skipComputer();
-  else if (key === " " && playing && humanTurn() && !missShown) {
+  else if (key === " " && playing && humanTurn()) {
     e.preventDefault();
+    if (e.repeat) return;
     document.activeElement?.blur?.();
-    if (game.phase === "hop") submit({ type: "hop", square: expectation(game).to, timing: needle(performance.now()) });
+    if (THROW_MOVE[game.phase]) startHold("key");
+    else if (game.phase === "hop") submit({ type: "hop", square: expectation(game).to, timing: needle(performance.now()) });
     else if (game.phase === "pickup") submit({ type: "pickup", timing: needle(performance.now()) });
   }
+});
+addEventListener("keyup", (e) => {
+  if (e.key === " " && holdState?.id === "key") endHold(false);
 });
 
 // --- menu, settings and how to play ---------------------------------------------------------------
@@ -1104,18 +1076,10 @@ function renderMenu() {
   if (d) {
     const g = d.game;
     const others = g.players.slice(1);
-    const vs = others.length ? `vs ${others.map((q) => q.name).join(", ")}` : "Solo";
-    $("saved-line").textContent = `${vs} · Turn ${g.turnNo} · Square ${g.players[0].target}`;
-    $("saved-dots").replaceChildren(
-      ...g.players.map((q) => {
-        const i = document.createElement("i");
-        i.style.background = q.color ?? "#999";
-        return i;
-      }),
-    );
+    const vs = others.length ? `You vs ${others.map((q) => q.name).join(", ")}` : "Solo practice";
+    $("saved-line").textContent = `${vs}, you're on square ${g.players[0].target}`;
   }
   $("howto-new").hidden = Boolean(store.get("suwe.seenTutorial"));
-  renderLbHint();
 }
 
 function renderSettings() {
@@ -1146,7 +1110,7 @@ $("discard-save").addEventListener("click", () => {
 let wasBusy = false;
 let animT = 0; // the animation clock: stands still while paused, runs twice as fast on 2x speed
 let lastT = null;
-const tip = $("tip");
+let lastBarSquare = null;
 function frame(t) {
   const dt = lastT === null ? 0 : Math.min(100, t - lastT);
   lastT = t;
@@ -1160,17 +1124,22 @@ function frame(t) {
     }
     if (!busy) scheduleAi();
     if (!$("meter").hidden && !busy) $("needle").style.left = `${50 + needle(t) * 50}%`;
-    if (missShown && missAuto) updateMissTimer(director.gateLeft(animT));
-  }
-  // "Tap here": a label on the glowing square, for the person whose turn it is.
-  const showTip = game && document.body.dataset.mode === "play" && !paused && !busy && !current().ai && game.phase === "hop" && Number.isInteger(view.hint);
-  tip.hidden = !showTip;
-  if (showTip) {
-    const c = squareCenter(view.hint);
-    const pt = scene.project(c.x, c.y + 0.3);
-    tip.textContent = isDesktop() ? "Click to hop" : "Tap here";
-    tip.style.left = `${pt.x}px`;
-    tip.style.top = `${pt.y}px`;
+    // The ring while the stone is held, and the bar that follows it.
+    if (holdState && humanTurn()) {
+      const ring = currentRing();
+      const sec = (performance.now() - holdState.t0) / 1000;
+      view.hold = { origin: THROW_ORIGIN, ring, ghosts: [ringAt(Math.max(0, sec - 0.45)), ringAt(sec + 0.45)] };
+      const sq = ring.x >= 0 && ring.x < COLS && ring.y >= 0 && ring.y < ROWS ? cellToSquare(Math.floor(ring.x), Math.floor(ring.y)) : null;
+      if (sq !== lastBarSquare) {
+        lastBarSquare = sq;
+        setBar("target", game.phase === "tiebreak" ? "Let go near the mark" : `Let go on square ${sq ?? "…"}`, "Hold the stone. The ring moves.", true);
+      }
+    } else if (view.hold) {
+      view.hold = null;
+      lastBarSquare = null;
+      updateBar();
+    }
+    if (!$("turncard").hidden) $("turncard-bar").style.width = `${Math.max(0, 1 - (performance.now() - turnCardStart) / 2000) * 100}%`;
   }
   wasBusy = busy;
   scene.draw(view, t);
@@ -1196,6 +1165,13 @@ if (params.has("debug") && !onStartNg()) {
     needle: () => needle(performance.now()),
     px: (x, y) => scene.project(x, y),
     hit: (sx, sy) => scene.hitSquare(sx, sy),
+    // Pin the ring to a place (no random miss), or pass nothing to let it move again.
+    ring: (x, y) => (ringOverride = x == null ? null : { x, y }),
+    get holding() {
+      return Boolean(holdState);
+    },
+    stonePx: () => stonePx(),
+    scene,
     zone: () => (game.phase === "throw" ? 1 : expectation(game).zone),
     spendLife,
     get view() {

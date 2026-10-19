@@ -21,35 +21,25 @@ const idle = async () => {
   for (let i = 0; i < 200; i++) {
     // A person's missed card waits for OK, like a player would press it.
     await ev(`(() => { const m = document.getElementById("miss"); if (m && !m.hidden) document.getElementById("miss-ok").click(); })()`);
+    // A missed pill goes away by itself; tapping it carries on at once.
+    await ev(`(() => { const m = document.getElementById("pill"); if (m && !m.hidden) m.click(); })()`);
     if (!(await ev("__suwe.busy"))) return;
     await sleep(50);
   }
   throw new Error("animation never finished");
 };
 
-// Drag the stone back so it lands in the centre of `square`.
+// Hold the stone with the ring pinned on `square` (plus an offset), then let go.
 async function throwAt(square, { shoot = null, offset = [0, 0] } = {}) {
-  const c = await ev(`(() => { const r = __suwe.game; return null })()`);
-  const geo = await ev(`(() => {
-    const cell = (n) => n <= 6 ? { x: 0.5, y: n - 0.5 } : { x: 1.5, y: 12 - n + 0.5 };
-    return cell(${square});
-  })()`);
-  const o = { x: 0.95, y: -0.6 };
-  const dx = geo.x + offset[0] - o.x;
-  const dy = geo.y + offset[1] - o.y;
-  const angle = Math.atan2(dx, dy);
-  const power = Math.hypot(dx, dy) / 8;
+  const cell = (n) => (n <= 6 ? { x: 0.5, y: n - 0.5 } : { x: 1.5, y: 12 - n + 0.5 });
+  const c = cell(square);
+  await ev(`__suwe.ring(${c.x + offset[0]}, ${c.y + offset[1]})`);
   const s = await ev("__suwe.px(0.95, -0.6)");
-  const len = power * H * 0.22;
-  const fx = s.x - Math.sin(angle) * len;
-  const fy = s.y + Math.cos(angle) * len;
   await b.touch("touchStart", s.x, s.y);
-  await sleep(40);
-  await b.touch("touchMove", (s.x + fx) / 2, (s.y + fy) / 2);
-  await b.touch("touchMove", fx, fy);
-  await sleep(60);
+  await sleep(120);
   if (shoot) await b.shot(shoot);
-  await b.touch("touchEnd", fx, fy);
+  await b.touch("touchEnd", s.x, s.y);
+  await ev("__suwe.ring()");
 }
 
 // Tap `square` (or "start") once the needle is comfortably in the green.

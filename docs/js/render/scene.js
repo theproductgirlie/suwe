@@ -18,7 +18,7 @@ import { normalizeStyle } from "./character.js";
 import { readTheme, watchTheme } from "../theme.js";
 
 const FONT = '"Baloo 2", "Trebuchet MS", system-ui, sans-serif';
-const K = 0.0072; // world units per character unit (a 100-unit child is 0.72 of a cell tall)
+const K = 0.0037; // world units per character unit (a 100-unit child is 0.37 of a cell tall)
 const K_H = 0.0075; // the director's stone heights (screen px) to world units
 
 const wx = (x) => x - COLS / 2;
@@ -358,9 +358,9 @@ export function createScene(canvas) {
     }
     groundTex.needsUpdate = true;
   }
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 80), new THREE.MeshBasicMaterial({ map: groundTex }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 160), new THREE.MeshBasicMaterial({ map: groundTex }));
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, 0, -30);
+  ground.position.set(0, 0, -10);
   world.add(ground);
 
   // --- the court ---
@@ -652,7 +652,7 @@ export function createScene(canvas) {
   };
   function fitCamera() {
     camera.aspect = W / H;
-    const L = layout ?? { nearY: H * 0.8, farY: H * 0.3, cx: W / 2, maxCell: Math.min((W * 0.8) / COLS, H * 0.2) };
+    const L = layout ?? { nearY: H * 0.7, farY: H * 0.25, cx: W / 2, maxCell: Math.min(W * 0.45, H * 0.2) };
     pitch = ((L.pitch ?? 31) * Math.PI) / 180;
     const wantSpan = L.nearY - L.farY;
     const maxCell = L.maxCell ?? Math.min((W * 0.8) / COLS, H * 0.2);
@@ -740,48 +740,61 @@ export function createScene(canvas) {
     return null;
   }
 
-  // Slingshot band, and a dotted line to where the stone would land (drawn flat on screen).
-  function drawAim(a, time) {
+  // While a throw is held: a dotted arc to the ring, the ring itself, and fainter rings behind and
+  // ahead of it on the path (drawn flat on the screen, over the court).
+  function drawHold(h, time) {
     const c = octx;
-    const from = project(a.origin.x, a.origin.y);
-    c.strokeStyle = css(theme.shade, 0.85);
-    c.lineWidth = 4;
-    c.lineCap = "round";
-    c.beginPath();
-    c.moveTo(from.x, from.y);
-    c.lineTo(a.fx, a.fy);
-    c.stroke();
-    c.fillStyle = css(theme.chalk, 0.85);
-    c.beginPath();
-    c.arc(a.fx, a.fy, 12, 0, Math.PI * 2);
-    c.fill();
+    const from = project(h.origin.x, h.origin.y);
+    const ringAt = (p) => project(p.x, p.y);
+    const r0 = ringAt(h.ring);
+    const rx = r0.scale * 0.34;
 
-    const to = project(a.land.x, a.land.y);
-    c.setLineDash([2, 9]);
-    c.strokeStyle = css(theme.ink, 0.85);
+    // Fainter rings along the path, so you can see where the ring is heading.
+    for (const g of h.ghosts ?? []) {
+      const q = ringAt(g);
+      c.strokeStyle = css(theme.chalk, 0.5);
+      c.lineWidth = 3;
+      c.beginPath();
+      c.ellipse(q.x, q.y, q.scale * 0.3, q.scale * 0.3 * 0.55, 0, 0, Math.PI * 2);
+      c.stroke();
+    }
+
+    // The arc the stone will fly: a parabola from the stone to the ring.
+    const lift = Math.min(150, 40 + Math.hypot(r0.x - from.x, r0.y - from.y) * 0.45);
+    c.setLineDash([2, 10]);
+    c.lineCap = "round";
+    c.strokeStyle = css(theme.chalk, 0.95);
     c.lineWidth = 4;
     c.beginPath();
-    c.moveTo(from.x, from.y);
-    c.lineTo(to.x, to.y);
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      const x = from.x + (r0.x - from.x) * t;
+      const y = from.y + (r0.y - from.y) * t - Math.sin(Math.PI * t) * lift;
+      if (i) c.lineTo(x, y);
+      else c.moveTo(x, y);
+    }
     c.stroke();
     c.setLineDash([]);
-    const r = to.scale * 0.1 * (1 + 0.1 * pulse(time));
-    c.strokeStyle = theme.danger;
-    c.lineWidth = 3;
+
+    // The ring: a pulsing white ring with a soft fill.
+    const pulse = 1 + 0.06 * Math.sin(time / 120);
+    c.fillStyle = css(theme.accent, 0.35);
     c.beginPath();
-    c.ellipse(to.x, to.y, r, r * 0.7, 0, 0, Math.PI * 2);
+    c.ellipse(r0.x, r0.y, rx * pulse, rx * pulse * 0.55, 0, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "#fff";
+    c.lineWidth = 5;
     c.stroke();
+    c.strokeStyle = css(theme.chalk, 0.35);
+    c.lineWidth = 12;
     c.beginPath();
-    c.moveTo(to.x - r * 0.5, to.y);
-    c.lineTo(to.x + r * 0.5, to.y);
-    c.moveTo(to.x, to.y - r * 0.35);
-    c.lineTo(to.x, to.y + r * 0.35);
+    c.ellipse(r0.x, r0.y, rx * pulse * 1.18, rx * pulse * 1.18 * 0.55, 0, 0, Math.PI * 2);
     c.stroke();
   }
 
   /**
    * view: {
-   *   hint: square | "start" | null, stone: {x,y,h}|null, flash, aim, houses, mark,
+   *   hint: square | "start" | null, stone: {x,y,h}|null, flash, hold, houses, mark, cleared, redLine,
    *   hero: { x, y, style, pose }   // court position, plus the pose (see character.js)
    * }
    */
@@ -792,6 +805,13 @@ export function createScene(canvas) {
     if (view.hint) drawHint(view.hint, time);
     if (view.mark) drawMark(view.mark, time);
     if (view.flash) drawFlash(view.flash, time);
+    // The squares the player on the court has cleared, tinted in their colour.
+    if (view.cleared) for (const n of view.cleared.squares) {
+      const r = squareRect(n);
+      quad(r.x, r.y, r.w, r.h, view.cleared.color, 0.42, 0.007, 3);
+    }
+    // The chalk line that was touched, in red.
+    if (view.redLine) quad(-0.03, view.redLine.y - 0.05, COLS + 0.06, 0.1, theme.danger, 1, 0.02, 7);
     quadPool.end();
     labelPool.end();
 
@@ -821,9 +841,9 @@ export function createScene(canvas) {
 
     renderer.clear();
     renderer.render(world, camera);
-    if (view.aim) {
+    if (view.hold) {
       octx.clearRect(0, 0, W, H);
-      drawAim(view.aim, time);
+      drawHold(view.hold, time);
       overlayTex.needsUpdate = true;
       renderer.clearDepth();
       renderer.render(overlayScene, overlayCam);

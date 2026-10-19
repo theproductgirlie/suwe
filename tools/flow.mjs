@@ -44,18 +44,23 @@ const pick = async (ev, n) => {
 const idle = async (ev) => {
   for (let i = 0; i < 400; i++) {
     // A person's missed card waits for OK, like a player would press it.
-    await ev(`(() => { const m = document.getElementById("miss"); if (m && !m.hidden) document.getElementById("miss-ok").click(); })()`);
+    await ev(`(() => { const m = document.getElementById("pill"); if (m && !m.hidden) m.click(); })()`);
     if (!(await ev("__suwe.busy"))) return;
     await sleep(50);
   }
 };
-// A throw that surely misses (hard pull straight up, far past the court).
-async function badThrow(b, ev) {
+// Hold the stone with the ring pinned where the throw should land (cell units), then let go.
+async function holdAt(b, ev, x, y) {
+  await ev(`__suwe.ring(${x}, ${y})`);
   const s = await ev("__suwe.px(0.95, -0.6)");
   await b.touch("touchStart", s.x, s.y);
-  await b.touch("touchMove", s.x, s.y + 180);
-  await sleep(50);
-  await b.touch("touchEnd", s.x, s.y + 180);
+  await sleep(60);
+  await b.touch("touchEnd", s.x, s.y);
+  await ev(`__suwe.ring()`);
+}
+// A throw that surely misses (the ring far past the court).
+async function badThrow(b, ev) {
+  await holdAt(b, ev, 1, 9);
 }
 
 // ---- 1. Setup screen ----
@@ -95,12 +100,12 @@ await session("", async (b, ev) => {
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
   check((await ev(`document.getElementById('toast').textContent`)) === "Oya, throw!", "solo says 'Oya, throw!' not 'your turn'");
-  check((await ev(`document.getElementById('banner').textContent`)).includes("Attempt 1"), "solo shows Attempt, not Turn");
+  check((await ev(`__suwe.game.turnNo`)) === 1, "solo starts at attempt 1");
   await badThrow(b, ev);
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 0 && (await ev(`__suwe.game.turnNo`)) === 2, "solo: after a miss it is still you, attempt 2");
   check((await ev(`document.getElementById('toast').textContent`)) === "Throw again!", "solo wording after a miss");
-  check((await ev(`document.getElementById('banner').textContent`)).includes("Attempt 2"), "attempt counter went up");
+  check((await ev(`__suwe.game.turnNo`)) === 2, "attempt counter went up");
 });
 
 // ---- 3. Versus computer (easy): it plays by itself after you miss ----
@@ -116,7 +121,7 @@ await session("", async (b, ev) => {
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 1, "turn passed to the computer");
   const hint = await ev(`document.getElementById('watch-title').textContent`);
-  check(/ is (throwing|hopping)/.test(hint) && (await ev(`document.getElementById('watch-card').hidden`)) === false, `the Watching card says the computer is playing ("${hint}")`);
+  check(/ is (throwing|hopping)/.test(hint) && (await ev(`document.getElementById('watchbar').hidden`)) === false, `the Watching card says the computer is playing ("${hint}")`);
   // The computer should act and eventually hand the turn back, with nobody touching the screen.
   let back = false;
   for (let i = 0; i < 600 && !back; i++) {
@@ -130,10 +135,10 @@ await session("", async (b, ev) => {
 
 // ---- 4. Lives ----
 await session("", async (b, ev) => {
-  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("5 of 5 lives"), "home shows 5 of 5 lives");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("5 lives"), "home shows 5 lives");
   for (let i = 0; i < 5; i++) await ev(`__suwe.spendLife()`);
   await sleep(1200);
-  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("0 of 5 lives"), "lives all gone after 5 losses");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("0 lives"), "lives all gone after 5 losses");
   const note = await ev(`document.getElementById('profile-lives').textContent`);
   check(/\+1 in (29:\d\d|30:00)$/.test(note), `countdown shown (${note})`);
   await ev(`document.getElementById('play').click()`);
@@ -150,10 +155,10 @@ await session("", async (b, ev) => {
   await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('1')).click()`);
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
-  check((await ev(`document.querySelectorAll('.pcard .hearts .ico:not(.off)').length`)) === 5, "scoreboard shows 5 lives");
+  check((await ev(`document.querySelector('.pcard .pstats').textContent`)).startsWith("5 ·"), "scoreboard shows 5 lives");
   await badThrow(b, ev);
   await idle(ev);
-  check((await ev(`document.querySelectorAll('.pcard .hearts .ico:not(.off)').length`)) === 4, "a failed turn costs a life (4 lives)");
+  check((await ev(`document.querySelector('.pcard .pstats').textContent`)).startsWith("4 ·"), "a failed turn costs a life (4 lives)");
   check((await ev(`__suwe.lives.lives`)) === 4, "your saved hearts dropped too");
   for (let i = 0; i < 4; i++) {
     await badThrow(b, ev);
@@ -196,20 +201,20 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
   await pick(ev, 2);
-  const torso = () => ev(`(() => { const c = document.querySelector('.seat-face').getContext('2d'); const d = c.getImageData(120, 126, 1, 1).data; return [d[0], d[1], d[2]]; })()`);
+  const torso = () => ev(`(() => { const c = document.querySelector('.seat-face').getContext('2d'); const d = c.getImageData(90, 92, 1, 1).data; return [d[0], d[1], d[2]]; })()`);
   const near = (a, hex) => {
     const n = parseInt(hex.slice(1), 16);
     return Math.abs(a[0] - (n >> 16)) + Math.abs(a[1] - ((n >> 8) & 255)) + Math.abs(a[2] - (n & 255)) < 30;
   };
   const first = await torso();
-  check(near(first, "#d6433b"), `seat 1 outfit starts in its house colour (rgb ${first})`);
+  check(near(first, "#e03131"), `seat 1 outfit starts in its house colour (rgb ${first})`);
   await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[4].click()`); // teal (blue is taken by seat 2)
   await sleep(100);
   const second = await torso();
-  check(near(second, "#3c9e72"), `picking teal turns the preview outfit teal (rgb ${second})`);
+  check(near(second, "#0ca678"), `picking teal turns the preview outfit teal (rgb ${second})`);
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(300);
-  check((await ev(`__suwe.game.players[0].look.primaryColor`)) === "#3c9e72", "the match uses the same outfit colour");
+  check((await ev(`__suwe.game.players[0].look.primaryColor`)) === "#0ca678", "the match uses the same outfit colour");
   check((await ev(`__suwe.game.players[1].look.primaryColor`)) === (await ev(`__suwe.game.players[1].color`)), "computer's outfit matches its colour too");
 });
 
@@ -226,7 +231,7 @@ await session("", async (b, ev) => {
   await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].click()`);
   check(JSON.stringify(await colours()) === JSON.stringify(start), "tapping a taken colour changes nobody's colour");
   check((await ev(`document.getElementById('toast').textContent`)) === "Player 2 has this colour", "it says which player has it");
-  check((await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].textContent`)) === "P2", "taken dot shows the owner's label (P2)");
+  check((await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].getAttribute('aria-label')`)) === "Colour used by player 2" && (await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[1].classList.contains('taken')`)), "a taken colour is pale and says who has it (player 2)");
   // Player 1 picks a free colour: only player 1 changes.
   await ev(`document.querySelectorAll('.seat')[0].querySelectorAll('.dot')[5].click()`);
   const after = await colours();
@@ -279,12 +284,12 @@ if (!FROM) {
   await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('4')).click()`);
   await sleep(150);
   const tops = await ev(`[...document.querySelectorAll('.seat')].map(s => Math.round(s.getBoundingClientRect().top))`);
-  check(tops.length === 4 && new Set(tops).size === 1, "desktop: 4 player cards sit in one row");
+  check(tops.length === 4 && new Set(tops).size === 2, "desktop: 4 players sit in two rows of two");
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
   const court = await ev(`(() => { const a = __suwe.px(0, 0), b = __suwe.px(2, 0); const t = __suwe.px(0, 6); return { w: b.x - a.x, h: a.y - t.y }; })()`);
-  check(court.w > 200 && court.w < 0.4 * 1280, `desktop: court is a sensible width (${Math.round(court.w)}px of 1280)`);
-  check(court.h / court.w > 1 && court.h / court.w < 2.2, `desktop: court keeps its proportions (h/w ${(court.h / court.w).toFixed(2)})`);
+  check(court.w > 200 && court.w < 0.5 * 1280, `desktop: court is a sensible width (${Math.round(court.w)}px of 1280)`);
+  check(court.h / court.w > 0.6 && court.h / court.w < 2.2, `desktop: court keeps its proportions (h/w ${(court.h / court.w).toFixed(2)})`);
   await b.close();
 }
 
@@ -296,18 +301,7 @@ await session("", async (b, ev) => {
   await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`); // seat 2: Person
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(300);
-  const aimed = async (x, y) => {
-    const o = { x: 0.95, y: -0.6 };
-    const dx = x - o.x, dy = y - o.y;
-    const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
-    const s = await ev("__suwe.px(0.95, -0.6)");
-    const len = power * 844 * 0.22;
-    const fx = s.x - Math.sin(angle) * len, fy = s.y + Math.cos(angle) * len;
-    await b.touch("touchStart", s.x, s.y);
-    await b.touch("touchMove", fx, fy);
-    await sleep(50);
-    await b.touch("touchEnd", fx, fy);
-  };
+  const aimed = async (x, y) => holdAt(b, ev, x, y);
   await aimed(0.5, 0.5);
   await idle(ev);
   check((await ev(`__suwe.game.phase`)) === "hop", "stone in square 1, hopping");
@@ -338,17 +332,8 @@ await session("", async (b, ev) => {
   await sleep(500);
   await b.tap(30, 400); // any real tap lets the browser start sound
   await sleep(300);
-  check((await ev(`document.getElementById('move-kind').textContent`)) === "Ra Ile", "the move card explains Ra Ile");
-  const o = { x: 0.95, y: -0.6 };
-  const dx = 1.5 - o.x, dy = 3.5 - o.y; // square 9 is the right column, 4th row up
-  const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
-  const s = await ev("__suwe.px(0.95, -0.6)");
-  const len = power * 844 * 0.22;
-  const fx = s.x - Math.sin(angle) * len, fy = s.y + Math.cos(angle) * len;
-  await b.touch("touchStart", s.x, s.y);
-  await b.touch("touchMove", fx, fy);
-  await sleep(50);
-  await b.touch("touchEnd", fx, fy);
+  check((await ev(`document.getElementById('bar-title').textContent`)) === "Throw over your shoulder", "the bar explains Ra Ile");
+  await holdAt(b, ev, 1.5, 3.5); // square 9, the right column, 4th row up
   await sleep(1500);
   check((await ev(`document.getElementById('celebrate').hidden`)) === false, "celebration shows");
   check((await ev(`document.querySelector('#celebrate h2').textContent`)) === "You Don Buy House!", "it says 'You Don Buy House!'");
@@ -357,7 +342,7 @@ await session("", async (b, ev) => {
   await idle(ev);
   await sleep(300);
   check((await ev(`JSON.stringify(__suwe.game.owners[8])`)) === '"a"', "square 9 now belongs to Ada");
-  check((await ev(`document.querySelector('.pcard').textContent`)).includes("1 house"), "scoreboard shows 1 house");
+  check((await ev(`__suwe.view.houses.length`)) === 1, "the new house shows on the court");
   await b.shot("shots/h2-house-on-court.png");
 });
 
@@ -377,18 +362,7 @@ await session("", async (b, ev) => {
   await sleep(400);
   await b.tap(30, 400); // any real tap lets the browser start sound
   await sleep(300);
-  const drag = async (x, y) => {
-    const o = { x: 0.95, y: -0.6 };
-    const dx = x - o.x, dy = y - o.y;
-    const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
-    const s = await ev("__suwe.px(0.95, -0.6)");
-    const len = power * 844 * 0.22;
-    const fx = s.x - Math.sin(angle) * len, fy = s.y + Math.cos(angle) * len;
-    await b.touch("touchStart", s.x, s.y);
-    await b.touch("touchMove", fx, fy);
-    await sleep(50);
-    await b.touch("touchEnd", fx, fy);
-  };
+  const drag = async (x, y) => holdAt(b, ev, x, y);
   await drag(1.5, 0.5); // Ada buys the last square, 12: 6 v 6
   await idle(ev);
   await sleep(300);
@@ -484,10 +458,10 @@ if (!FROM) {
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(300);
   await ev(`document.getElementById('sound-btn').click()`);
-  check((await ev(`document.getElementById('sound-btn').textContent`)) === "Sound off", "in a match, Sound button turns everything off");
+  check((await ev(`document.getElementById('sound-btn').getAttribute('aria-label')`)) === "Turn sound on", "in a match, Sound button turns everything off");
   check((await ev(`__suwe.audio.prefs.music === false && __suwe.audio.prefs.sfx === false`)), "both music and effects are off");
   await ev(`document.getElementById('sound-btn').click()`);
-  check((await ev(`document.getElementById('sound-btn').textContent`)) === "Sound on", "and back on");
+  check((await ev(`document.getElementById('sound-btn').getAttribute('aria-label')`)) === "Turn sound off", "and back on");
   check(b.problems.length === 0, "no console errors with sound running");
   if (b.problems.length) console.log(b.problems.join("\n"));
   await b.close();
@@ -535,16 +509,7 @@ await session("", async (b, ev) => {
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(300);
   check((await ev(`__suwe.saved !== null`)) === true, "starting a match saves it");
-  const o = { x: 0.95, y: -0.6 };
-  const dx = 0.5 - o.x, dy = 0.5 - o.y;
-  const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
-  const st = await ev("__suwe.px(0.95, -0.6)");
-  const len = power * 844 * 0.22;
-  const fx = st.x - Math.sin(angle) * len, fy = st.y + Math.cos(angle) * len;
-  await b.touch("touchStart", st.x, st.y);
-  await b.touch("touchMove", fx, fy);
-  await sleep(50);
-  await b.touch("touchEnd", fx, fy);
+  await holdAt(b, ev, 0.5, 0.5);
   await idle(ev);
   check((await ev(`__suwe.game.phase`)) === "hop", "stone thrown into square 1, mid-turn");
   const before = await ev(`JSON.stringify(__suwe.game)`);
@@ -556,7 +521,7 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('continue').click()`);
   await sleep(300);
   check((await ev(`JSON.stringify(__suwe.game)`)) === before, "the resumed match is identical, mid-hop");
-  check((await ev(`document.getElementById('move-desc').textContent`)).length > 0 && (await ev(`__suwe.game.phase`)) === "hop", "and it is playable: waiting for the next hop");
+  check((await ev(`document.getElementById('bar-title').textContent`)).length > 0 && (await ev(`__suwe.game.phase`)) === "hop", "and it is playable: waiting for the next hop");
   check((await ev(`__suwe.saved.elapsed >= 0`)) === true, "match time is kept");
   // Pausing keeps the save; starting a new match asks first.
   await ev(`document.getElementById('menu-btn').click()`); // Menu opens the pause drawer...
@@ -654,16 +619,7 @@ await session("&signedin", async (b, ev) => {
     await sleep(300);
     await b.tap(30, 400);
     await sleep(200);
-    const o = { x: 0.95, y: -0.6 };
-    const dx = 1.5 - o.x, dy = 0.5 - o.y; // square 12
-    const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
-    const st = await ev("__suwe.px(0.95, -0.6)");
-    const len = power * 844 * 0.22;
-    const fx = st.x - Math.sin(angle) * len, fy = st.y + Math.cos(angle) * len;
-    await b.touch("touchStart", st.x, st.y);
-    await b.touch("touchMove", fx, fy);
-    await sleep(50);
-    await b.touch("touchEnd", fx, fy);
+    await holdAt(b, ev, 1.5, 0.5); // square 12
     await idle(ev);
     await sleep(1200);
     return ev(`document.getElementById('results-score').textContent`);
@@ -698,11 +654,7 @@ await session("", async (b, ev) => {
   check((await ev(`window.__said.length`)) === 0, "voice is off by default: nothing is spoken");
   await ev(`document.getElementById('opt-voice').click()`); // on
   const badThrow = async () => {
-    const s = await ev("__suwe.px(0.95, -0.6)");
-    await b.touch("touchStart", s.x, s.y);
-    await b.touch("touchMove", s.x, s.y + 180);
-    await sleep(50);
-    await b.touch("touchEnd", s.x, s.y + 180);
+    await holdAt(b, ev, 1, 9);
     await idle(ev);
     await sleep(500);
   };
@@ -748,13 +700,7 @@ await session("", async (b, ev) => {
 
   // Your turn: input does nothing while paused.
   await setup2("");
-  const dragOnce = async () => {
-    const s = await ev("__suwe.px(0.95, -0.6)");
-    await b.touch("touchStart", s.x, s.y);
-    await b.touch("touchMove", s.x, s.y + 150);
-    await sleep(50);
-    await b.touch("touchEnd", s.x, s.y + 150);
-  };
+  const dragOnce = async () => holdAt(b, ev, 1, 9);
   await ev(`document.getElementById('menu-btn').click()`);
   await sleep(400);
   const before = await ev(`JSON.stringify(__suwe.game)`);

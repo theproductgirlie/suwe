@@ -23,6 +23,7 @@ const PATHS = {
   chat: '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4h0A2.5 2.5 0 0 1 4 13.5z"/>',
   save: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/>',
   fast: '<path d="m5 5 7 7-7 7M13 5l7 7-7 7"/>',
   x: '<path d="m6 6 12 12M18 6 6 18"/>',
   throw: '<path d="M5 19c2-8 6-12 14-14M19 5l-1 5M19 5l-5 1"/>',

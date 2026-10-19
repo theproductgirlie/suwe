@@ -1,11 +1,11 @@
 /* The one place the look of SUWE is set ("Golden hour"). Every screen reads these variables, and
    so does the 3D scene (see js/theme.js): change a value here, or set another theme on <html>,
-   and the court, ground, chalk and children's shoes, eyes and stone follow. The six player
-   colours are data, not theme: they stay the same in every theme. */
+   and the court, ground, chalk, children's shoes and eyes, the stone and the player colours follow. */
 :root {
   --sky: #ffe6c7;
   --bg: #edb676;
   --card: #fff7ee;
+  --white: #ffffff;
   --line: #f2d5b5;
   --ink: #3b1d12;
   --soft: #86533a;
@@ -17,7 +17,14 @@
   --chalk: #fff9f1;
   --danger: #d7263d;
 
-  --display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
-  --radius: 22px;
-  --shadow: 0 6px 0 rgba(138, 44, 24, 0.1), 0 10px 24px rgba(59, 29, 18, 0.1);
+  /* Player colours: P1 to P6 */
+  --p1: #e03131;
+  --p2: #1971c2;
+  --p3: #f08c00;
+  --p4: #7048e8;
+  --p5: #0ca678;
+  --p6: #d6336c;
+
+  --text: "Nunito", system-ui, sans-serif;
+  --display: "Baloo 2", "Nunito", system-ui, sans-serif;
 }

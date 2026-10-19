@@ -17,7 +17,7 @@
     <div id="art" aria-hidden="true"><i class="sun"></i><i class="hill"></i></div>
     <canvas id="stage"></canvas>
 
-    <!-- Who is playing (start.ng): home and setup only -->
+    <!-- Who is playing (start.ng): home only -->
     <div class="profile" id="player-card" hidden>
       <span class="avatar"><img id="player-face" alt="" hidden /><b id="player-initials"></b></span>
       <div class="who">
@@ -28,85 +28,52 @@
       <a id="player-sign-in" class="signin" hidden>Sign in</a>
     </div>
     <button id="open-settings" class="round-btn settings-btn" type="button" aria-label="Settings">
-      <span data-icon="sliders" data-size="24"></span><span class="btn-text">Settings</span>
+      <span data-icon="sliders" data-size="24"></span>
     </button>
 
     <!-- In a match -->
     <div class="play-only" id="hud">
       <header id="topbar">
-        <button id="menu-btn" class="round-btn" type="button" aria-label="Pause">
-          <span data-icon="pause" data-size="22"></span><span class="btn-text">Pause</span>
-        </button>
+        <button id="menu-btn" class="round-btn" type="button" aria-label="Pause"><span data-icon="pause" data-size="22"></span></button>
         <div id="banner"></div>
         <button id="sound-btn" class="round-btn" type="button" aria-label="Sound"></button>
       </header>
-      <section id="players" aria-label="Players">
-        <p class="col-label">Players</p>
-        <div id="board"></div>
-      </section>
-      <section id="progress" aria-label="Progress">
-        <div class="progress-head"><span id="progress-who">Your progress</span><span id="progress-count"></span></div>
-        <div class="segs" id="pips"></div>
-      </section>
+      <div id="board"></div>
     </div>
-    <div id="tip" role="presentation" hidden></div>
 
-    <aside class="play-only" id="move" aria-label="Your move">
-      <p class="col-label" id="move-label">Your move</p>
-      <div class="card move-card" id="move-card">
-        <div class="move-head">
-          <span class="move-icon" id="move-icon"></span>
-          <div>
-            <span class="kicker" id="move-kind">Hop</span>
-            <h2 id="move-title">Tap square 1</h2>
-          </div>
-        </div>
-        <p id="move-desc"></p>
-        <p id="move-tip" class="tip-pill"></p>
-        <div id="meter" hidden>
-          <div id="zone"></div>
-          <div id="needle"></div>
-        </div>
-        <button id="pickup" class="big" type="button" hidden>Pick up</button>
+    <!-- The instruction card when a turn starts (2 seconds) -->
+    <div id="turncard" hidden>
+      <span class="kicker" id="turncard-kicker">Your turn</span>
+      <h2 id="turncard-title">Throw at square 1</h2>
+      <p id="turncard-sub"></p>
+      <div class="countdown"><i id="turncard-bar"></i></div>
+    </div>
+
+    <!-- The balance meter and Pick up, when a move needs them -->
+    <div class="play-only" id="meterwrap">
+      <div id="meter" hidden>
+        <div id="zone"></div>
+        <div id="needle"></div>
       </div>
-      <div class="card watch-card" id="watch-card" hidden>
-        <div class="watch-head">
-          <span class="watch-face" id="watch-face"></span>
-          <div>
-            <h2 id="watch-title">Tunde is hopping…</h2>
-            <p id="watch-sub"></p>
-          </div>
-        </div>
-        <div class="watch-btns">
-          <button id="speed-btn" class="big dark" type="button"><span data-icon="fast" data-size="20"></span><span id="speed-text">2× speed</span></button>
-          <button id="skip-btn" class="big" type="button">Skip to my turn <kbd>S</kbd></button>
-        </div>
-        <p class="fine" id="skip-note"></p>
-      </div>
-      <div class="card keys-card" id="keys">
-        <p class="kicker">Keyboard</p>
-        <ul>
-          <li><span>Pause</span><kbd>Esc</kbd></li>
-          <li><span>Sound on / off</span><kbd>M</kbd></li>
-          <li><span>Hop to the glowing square</span><kbd>Space</kbd></li>
-        </ul>
-      </div>
-    </aside>
+      <button id="pickup" class="big" type="button" hidden>Pick up</button>
+    </div>
+
+    <!-- Bottom of the match: what to do now, or the computer's controls, or a miss -->
+    <div class="dock dark play-only" id="bar" role="status">
+      <span class="dock-ico" id="bar-ico"></span>
+      <div class="dock-text"><b id="bar-title"></b><small id="bar-sub"></small></div>
+    </div>
+    <div class="dock light play-only" id="watchbar" hidden>
+      <b id="watch-title">Tunde is hopping…</b>
+      <button id="speed-btn" class="ghost-btn" type="button"><span id="speed-text">2× faster</span></button>
+      <button id="skip-btn" class="big small" type="button">Skip <kbd>S</kbd></button>
+    </div>
+    <div class="dock light" id="pill" hidden role="status">
+      <span class="dock-ico red"><span data-icon="heart" data-size="24"></span></span>
+      <div class="dock-text"><b id="pill-title"></b><small id="pill-sub"></small></div>
+    </div>
 
     <div id="toast" role="status"></div>
-
-    <!-- "Missed" card -->
-    <div id="miss" hidden>
-      <div class="miss-card" role="dialog" aria-modal="true" aria-labelledby="miss-title">
-        <div class="miss-art" id="miss-art"></div>
-        <h2 id="miss-title"></h2>
-        <p id="miss-why"></p>
-        <div class="miss-hearts"><span id="miss-hearts"></span><b id="miss-left"></b></div>
-        <p id="miss-restart" class="soft"></p>
-        <button id="miss-ok" class="big" type="button"><span id="miss-ok-text">OK</span><kbd>Enter</kbd></button>
-        <div id="miss-timer"><div class="countdown"><i id="miss-bar"></i></div><p class="fine" id="miss-count"></p></div>
-      </div>
-    </div>
 
     <!-- Pause: a sheet on the phone, a window on the desktop -->
     <div id="pause-scrim"></div>
@@ -114,50 +81,45 @@
       <span class="grab" aria-hidden="true"></span>
       <button id="pause-close" class="round-btn close-x" type="button" aria-label="Close"><span data-icon="x" data-size="20"></span></button>
       <div class="pause-head">
-        <div>
-          <h2 id="pause-title">Paused</h2>
-          <p class="soft" id="pause-sub"></p>
-        </div>
-        <span class="color-dots" id="pause-dots"></span>
+        <h2 id="pause-title">Paused</h2>
+        <p class="soft" id="pause-sub"></p>
       </div>
-      <button id="pause-resume" class="big go" type="button">Resume <kbd>Esc</kbd></button>
+      <button id="pause-resume" class="big" type="button">Resume <kbd>Esc</kbd></button>
       <div class="toggles">
         <button id="pause-music" class="toggle" type="button" role="switch"></button>
         <button id="pause-sfx" class="toggle" type="button" role="switch"></button>
         <button id="pause-voice" class="toggle" type="button" role="switch"></button>
       </div>
       <div class="pause-btns">
-        <button id="pause-howto" class="tile-btn" type="button"><span data-icon="chat" data-size="20"></span>How to play</button>
-        <button id="pause-leave" class="tile-btn" type="button"><span data-icon="save" data-size="20"></span>Save &amp; quit</button>
+        <button id="pause-howto" class="outline-btn" type="button">How to play</button>
+        <button id="pause-leave" class="outline-btn" type="button">Save and quit</button>
       </div>
-      <p class="fine">Your match is saved. Pick it up from Home.</p>
     </aside>
 
     <!-- Screens -->
     <section id="menu" class="screen">
       <div class="menu-copy">
-        <h1>SUWE</h1>
-        <p class="tagline">The Nigerian hopping game<span class="wide-only">. Throw the stone, hop the court, build your house.</span></p>
+        <div class="logo" role="img" aria-label="SUWE">
+          <span>S</span><span class="on">U<i class="stone"></i></span><span>W</span><span>E</span>
+        </div>
+        <p class="tagline">The Nigerian hopping game</p>
       </div>
       <div class="menu-actions">
         <button id="play" class="big go" type="button">Play</button>
         <div id="continue-card" class="card saved" hidden>
-          <span class="saved-dots" id="saved-dots"></span>
           <div class="saved-text">
-            <span class="kicker">Saved match</span>
+            <span class="kicker">Unfinished match</span>
             <b id="saved-line"></b>
           </div>
           <button id="continue" class="ghost-btn" type="button">Resume</button>
         </div>
         <div class="tiles">
           <button id="open-howto" class="tile" type="button">
-            <span class="tile-ico" data-icon="book" data-size="26"></span>
-            <span class="tile-text"><b>How to play</b><small>7 quick steps</small></span>
+            <span data-icon="book" data-size="26"></span><b>How to play</b>
             <span class="new" id="howto-new">New</span>
           </button>
           <button id="open-lb" class="tile" type="button">
-            <span class="tile-ico" data-icon="trophy" data-size="26"></span>
-            <span class="tile-text"><b>Leaderboard</b><small id="lb-hint">Top spot is open</small></span>
+            <span data-icon="trophy" data-size="26"></span><b>Leaderboard</b>
           </button>
         </div>
       </div>
@@ -165,10 +127,9 @@
     <section id="setup" class="screen" hidden></section>
     <section id="howto" class="screen" hidden></section>
     <section id="settings" class="screen" hidden>
-      <button id="settings-back" class="round-btn back-btn" type="button" aria-label="Back"><span data-icon="back" data-size="24"></span></button>
-      <div class="page-head">
+      <div class="screen-head">
+        <button id="settings-back" class="round-btn back-btn" type="button" aria-label="Back"><span data-icon="back" data-size="24"></span></button>
         <h2 class="setup-title">Settings</h2>
-        <p class="setup-sub">Sound and your saved match</p>
       </div>
       <div class="card wide settings-card">
         <div class="toggles">
@@ -176,27 +137,30 @@
           <button id="opt-sfx" class="toggle" type="button" role="switch"></button>
           <button id="opt-voice" class="toggle" type="button" role="switch"></button>
         </div>
-        <button id="discard-save" class="tile-btn" type="button" hidden>Delete saved match</button>
+        <button id="discard-save" class="outline-btn" type="button" hidden>Delete saved match</button>
       </div>
     </section>
     <section id="leaderboard" class="screen" hidden>
-      <button id="lb-back" class="round-btn back-btn" type="button" aria-label="Back"><span data-icon="back" data-size="24"></span></button>
-      <div class="page-head">
+      <div class="screen-head">
+        <button id="lb-back" class="round-btn back-btn" type="button" aria-label="Back"><span data-icon="back" data-size="24"></span></button>
         <h2 class="setup-title">Leaderboard</h2>
-        <p class="setup-sub">Best wins against the computer</p>
-      </div>
-      <div class="tabs lb-tabs" id="lb-tabs">
-        <button class="chip on" type="button" data-level="2"><b>Medium</b><span>★★☆</span></button>
-        <button class="chip" type="button" data-level="3"><b>Hard</b><span>★★★</span></button>
       </div>
       <div class="lb-layout">
-        <div class="card lb-empty" id="lb-empty" hidden>
-          <span class="lb-trophy" data-icon="trophy" data-size="56"></span>
-          <h3>The top spot is empty</h3>
-          <p id="lb-status"></p>
-          <button id="lb-play" class="big go" type="button">Play vs computer</button>
+        <div class="lb-left">
+          <div class="lb-empty" id="lb-empty" hidden>
+            <span class="lb-trophy" data-icon="trophy" data-size="56"></span>
+            <h3>No winners yet</h3>
+            <p id="lb-status"></p>
+          </div>
+          <div class="lb-cta"><button id="lb-play" class="big" type="button">Play the computer</button></div>
         </div>
-        <div class="lb-list" id="lb-list"></div>
+        <div class="lb-right">
+          <div class="tabs lb-tabs" id="lb-tabs">
+            <button class="chip on" type="button" data-level="2">Medium</button>
+            <button class="chip" type="button" data-level="3">Hard</button>
+          </div>
+          <div class="lb-list" id="lb-list"></div>
+        </div>
       </div>
     </section>
     <section id="gate" class="screen" hidden>
