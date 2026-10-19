@@ -740,26 +740,38 @@ export function createScene(canvas) {
     return null;
   }
 
-  // While a throw is held: a dotted arc to the ring, the ring itself, and fainter rings behind and
-  // ahead of it on the path (drawn flat on the screen, over the court).
+  // While a throw is held: a dotted arc to the red mark, and the mark itself, going round the
+  // square you are aiming at (drawn flat on the screen, over the court).
   function drawHold(h, time) {
     const c = octx;
     const from = project(h.origin.x, h.origin.y);
-    const ringAt = (p) => project(p.x, p.y);
-    const r0 = ringAt(h.ring);
-    const rx = r0.scale * 0.34;
+    const r0 = project(h.ring.x, h.ring.y);
+    const rx = r0.scale * 0.3;
 
-    // Fainter rings along the path, so you can see where the ring is heading.
-    for (const g of h.ghosts ?? []) {
-      const q = ringAt(g);
-      c.strokeStyle = css(theme.chalk, 0.5);
-      c.lineWidth = 3;
+    // The faint path the mark goes round, and a short trail behind it.
+    if (h.around) {
+      c.strokeStyle = css(theme.chalk, 0.4);
+      c.lineWidth = 2;
+      c.setLineDash([3, 8]);
       c.beginPath();
-      c.ellipse(q.x, q.y, q.scale * 0.3, q.scale * 0.3 * 0.55, 0, 0, Math.PI * 2);
+      for (let i = 0; i <= 48; i++) {
+        const a = (i / 48) * Math.PI * 2;
+        const q = project(h.around.x + 0.62 * Math.cos(a), h.around.y + 0.62 * Math.sin(a));
+        if (i) c.lineTo(q.x, q.y);
+        else c.moveTo(q.x, q.y);
+      }
       c.stroke();
+      c.setLineDash([]);
     }
+    (h.trail ?? []).forEach((p, i) => {
+      const q = project(p.x, p.y);
+      c.fillStyle = css(theme.danger, 0.28 - i * 0.08);
+      c.beginPath();
+      c.ellipse(q.x, q.y, rx * (0.7 - i * 0.14), rx * (0.7 - i * 0.14) * 0.6, 0, 0, Math.PI * 2);
+      c.fill();
+    });
 
-    // The arc the stone will fly: a parabola from the stone to the ring.
+    // The arc the stone will fly: a parabola from the stone to the mark.
     const lift = Math.min(150, 40 + Math.hypot(r0.x - from.x, r0.y - from.y) * 0.45);
     c.setLineDash([2, 10]);
     c.lineCap = "round";
@@ -776,19 +788,21 @@ export function createScene(canvas) {
     c.stroke();
     c.setLineDash([]);
 
-    // The ring: a pulsing white ring with a soft fill.
-    const pulse = 1 + 0.06 * Math.sin(time / 120);
-    c.fillStyle = css(theme.accent, 0.35);
+    // The red mark: a ring with a cross, like the one that showed where the stone would land.
+    const pulse = 1 + 0.06 * Math.sin(time / 110);
+    const ry = rx * pulse * 0.6;
+    c.fillStyle = css(theme.danger, 0.2);
     c.beginPath();
-    c.ellipse(r0.x, r0.y, rx * pulse, rx * pulse * 0.55, 0, 0, Math.PI * 2);
+    c.ellipse(r0.x, r0.y, rx * pulse, ry, 0, 0, Math.PI * 2);
     c.fill();
-    c.strokeStyle = "#fff";
+    c.strokeStyle = theme.danger;
     c.lineWidth = 5;
     c.stroke();
-    c.strokeStyle = css(theme.chalk, 0.35);
-    c.lineWidth = 12;
     c.beginPath();
-    c.ellipse(r0.x, r0.y, rx * pulse * 1.18, rx * pulse * 1.18 * 0.55, 0, 0, Math.PI * 2);
+    c.moveTo(r0.x - rx * 0.55, r0.y);
+    c.lineTo(r0.x + rx * 0.55, r0.y);
+    c.moveTo(r0.x, r0.y - ry * 0.7);
+    c.lineTo(r0.x, r0.y + ry * 0.7);
     c.stroke();
   }
 

@@ -746,5 +746,30 @@ await session("", async (b, ev) => {
   check((await paused()) === false, "and the pause is cleared");
 });
 
+// ---- 21. Lives: the 30-minute refill starts at the first lost heart and hearts come back mid-match ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(600);
+  check((await ev(`__suwe.lives.since`)) === null, "full hearts: no refill timer running");
+  await badThrow(b, ev);
+  await idle(ev);
+  await sleep(300);
+  const lost = await ev(`JSON.stringify(__suwe.lives)`);
+  const L = JSON.parse(lost);
+  check(L.lives === 4 && Number.isFinite(L.since), "the first lost heart starts the refill timer straight away");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("+1 in 29:"), "and home counts down from 30:00");
+  // 31 minutes later, in the middle of the match
+  await ev(`__suwe.setLives({ lives: 4, since: Date.now() - 31 * 60000 })`);
+  await sleep(1400);
+  check((await ev(`__suwe.lives.lives`)) === 5, "after 30 minutes the saved heart is back");
+  check((await ev(`__suwe.game.players[0].lives`)) === 5, "and it is back in the match too");
+  await badThrow(b, ev);
+  await idle(ev);
+  await sleep(300);
+  check((await ev(`__suwe.game.players[0].lives`)) === 4 && (await ev(`__suwe.lives.lives`)) === 4, "losing a heart after a refill costs one heart, not two");
+});
+
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nall passed");
 process.exit(fails.length ? 1 : 0);

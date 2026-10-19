@@ -192,7 +192,13 @@ function renderLives(force) {
   const line = $("profile-lives");
   line.replaceChildren(icon("heart", 15), document.createTextNode(`${lives.lives} ${lives.lives === 1 ? "life" : "lives"}${next ? ` · +1 in ${fmt(next)}` : ""}`));
 }
-setInterval(() => renderLives(), 1000);
+setInterval(() => {
+  renderLives();
+  if (document.body.dataset.mode === "play" && matchHeartsFollowSaved()) {
+    saveMatch();
+    renderBoard();
+  }
+}, 1000);
 
 // --- toast (voice line bubble) --------------------------------------------------------
 let toastTimer;
@@ -334,7 +340,7 @@ function setBar(ico, title, sub, withSpace) {
   const small = $("bar-sub");
   small.replaceChildren(document.createTextNode(sub));
   if (withSpace && isDesktop()) {
-    small.replaceChildren(document.createTextNode("Hold the stone or "), el("kbd", "", "Space"), document.createTextNode(". The ring moves."));
+    small.replaceChildren(document.createTextNode("Hold the stone or "), el("kbd", "", "Space"), document.createTextNode(". The red mark spins."));
   }
 }
 
@@ -456,24 +462,38 @@ function needle(now) {
 }
 
 // --- playing a move ---------------------------------------------------------------------------
-// Player 1 is the person holding the phone: their hearts are the saved ones.
-function syncHearts() {
+// Player 1 is the person holding the phone: their hearts are the saved lives. A heart lost in the
+// match starts (or keeps running) the 30-minute refill, and a heart that refills while you play
+// comes back in the match too.
+function syncHearts(before) {
   const now = Date.now();
   let t = tickLives(lives, now);
-  while (t.lives > game.players[0].lives) t = loseLife(t, now);
-  if (t.lives !== lives.lives) {
+  const lost = Math.max(0, before.players[0].lives - game.players[0].lives);
+  for (let i = 0; i < lost; i++) t = loseLife(t, now);
+  if (t.lives !== lives.lives || t.since !== lives.since) {
     lives = t;
     saveLives();
     renderLives(true);
   }
+  matchHeartsFollowSaved();
+}
+
+// The hearts shown in the match follow the saved lives (a player who is out stays out).
+function matchHeartsFollowSaved() {
+  if (!game || game.over) return false;
+  const p0 = game.players[0];
+  if (p0.out || p0.lives === lives.lives) return false;
+  p0.lives = lives.lives;
+  return true;
 }
 
 let actor = null; // whoever made the move being shown (the state has already moved on to the next player)
 function commit(r) {
   if (r.rejected) return;
   actor = game ? players()[game.current] : null;
+  const before = game;
   game = r.state;
-  syncHearts();
+  syncHearts(before);
   saveMatch();
   holdState = null;
   view.hold = null;
@@ -584,7 +604,7 @@ const THROW_MOVE = { throw: "throw", ra_ile: "backthrow", tiebreak: "tiebreak" }
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // The ring and the small random miss (see ring.js). `level` is the computer's level in this match.
 const matchLevel = () => game?.players.find((q) => q.ai)?.ai ?? null;
-const ringOpts = () => ({ phase: game.phase, target: current().target, level: matchLevel() });
+const ringOpts = () => ({ phase: game.phase === "ra_ile" ? "ra_ile" : game.phase, target: current().target, level: matchLevel() });
 const ringAt = (sec) => ringPosition(sec, ringOpts());
 
 let holdState = null; // { t0, id } while the stone is held (id: a pointer id, or "key")
@@ -704,6 +724,7 @@ function resumeMatch() {
   setPaused(false);
   director.reset();
   director.sync(game);
+  matchHeartsFollowSaved(); // lives that came back while you were away
   mode("play");
   startTurn();
   refreshHud();
@@ -1128,11 +1149,11 @@ function frame(t) {
     if (holdState && humanTurn()) {
       const ring = currentRing();
       const sec = (performance.now() - holdState.t0) / 1000;
-      view.hold = { origin: THROW_ORIGIN, ring, ghosts: [ringAt(Math.max(0, sec - 0.45)), ringAt(sec + 0.45)] };
-      const sq = ring.x >= 0 && ring.x < COLS && ring.y >= 0 && ring.y < ROWS ? cellToSquare(Math.floor(ring.x), Math.floor(ring.y)) : null;
-      if (sq !== lastBarSquare) {
-        lastBarSquare = sq;
-        setBar("target", game.phase === "tiebreak" ? "Let go near the mark" : `Let go on square ${sq ?? "…"}`, "Hold the stone. The ring moves.", true);
+      view.hold = { origin: THROW_ORIGIN, ring, trail: [ringAt(Math.max(0, sec - 0.12)), ringAt(Math.max(0, sec - 0.24)), ringAt(Math.max(0, sec - 0.36))], around: game.phase === "throw" ? squareCenter(current().target) : null };
+      if (lastBarSquare !== "held") {
+        lastBarSquare = "held";
+        const t = current().target;
+        setBar("target", game.phase === "throw" ? `Let go on square ${t}` : game.phase === "tiebreak" ? "Let go near the mark" : "Let go on an empty square", "Hold the stone. The red mark spins.", true);
       }
     } else if (view.hold) {
       view.hold = null;
@@ -1167,6 +1188,11 @@ if (params.has("debug") && !onStartNg()) {
     hit: (sx, sy) => scene.hitSquare(sx, sy),
     // Pin the ring to a place (no random miss), or pass nothing to let it move again.
     ring: (x, y) => (ringOverride = x == null ? null : { x, y }),
+    setLives: (v) => {
+      lives = v;
+      saveLives();
+      renderLives(true);
+    },
     get holding() {
       return Boolean(holdState);
     },
