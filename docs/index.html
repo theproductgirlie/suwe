@@ -48,15 +48,43 @@
     <section id="menu" class="screen">
       <h1>SUWE</h1>
       <p class="tagline">The Nigerian hopping game</p>
+      <button id="continue" class="big go alt" type="button" hidden>Continue match</button>
       <button id="play" class="big go" type="button">Play SUWE</button>
-      <div id="menu-lives" class="lives big-lives"></div>
-      <div class="audio-row">
-        <button id="opt-music" class="opt" type="button"></button>
-        <button id="opt-sfx" class="opt" type="button"></button>
-        <button id="opt-voice" class="opt" type="button"></button>
+      <div class="menu-links">
+        <button id="open-howto" class="opt" type="button">How to play<span class="new" id="howto-new">New</span></button>
+        <button id="open-lb" class="opt" type="button">Leaderboard</button>
+        <button id="open-settings" class="opt" type="button">Settings</button>
       </div>
+      <div id="menu-lives" class="lives big-lives"></div>
     </section>
     <section id="setup" class="screen" hidden></section>
+    <section id="howto" class="screen" hidden></section>
+    <section id="settings" class="screen" hidden>
+      <button id="settings-back" class="setup-back" type="button">‹  Back</button>
+      <h2 class="setup-title">Settings</h2>
+      <p class="setup-sub">Sound and your saved match</p>
+      <div class="card wide settings-card">
+        <button id="opt-music" class="opt row" type="button"></button>
+        <button id="opt-sfx" class="opt row" type="button"></button>
+        <button id="opt-voice" class="opt row" type="button"></button>
+        <p class="why" id="voice-note">Voice lines read a few key phrases aloud, like "Try again".</p>
+        <button id="discard-save" class="opt row" type="button" hidden>Delete saved match</button>
+      </div>
+    </section>
+    <section id="leaderboard" class="screen" hidden>
+      <button id="lb-back" class="setup-back" type="button">‹  Back</button>
+      <h2 class="setup-title">Leaderboard</h2>
+      <p class="setup-sub">Best matches against the computer</p>
+      <div class="card wide lb-card">
+        <p id="lb-status" class="why"></p>
+        <table id="lb-table" hidden>
+          <thead>
+            <tr><th>#</th><th>Player</th><th>Houses</th><th>Acc.</th><th>Miss</th><th>Time</th></tr>
+          </thead>
+          <tbody id="lb-rows"></tbody>
+        </table>
+      </div>
+    </section>
     <section id="gate" class="screen" hidden>
       <div class="card">
         <h2 id="gate-title"></h2>
@@ -78,6 +106,7 @@
           <tbody id="results-rows"></tbody>
         </table>
         <p id="results-time" class="why"></p>
+        <p id="results-score" class="why"></p>
         <p id="results-hearts" class="why"></p>
         <button id="results-again" class="big" type="button">Play again</button>
         <button id="results-menu" class="link" type="button">Menu</button>

@@ -7,7 +7,12 @@ const check = (ok, msg) => {
   if (!ok) fails.push(msg);
 };
 
+// FLOW_FROM=n skips the first n sessions (and the inline blocks), to rerun just the newer checks.
+const FROM = Number(process.env.FLOW_FROM ?? 0);
+let sessionNo = 0;
+
 async function session(query, fn) {
+  if (sessionNo++ < FROM) return;
   const b = await launch({ url: `http://localhost:5173/?debug${query}` });
   const ev = (js) => b.evaluate(js);
   await sleep(300);
@@ -237,7 +242,7 @@ await session("", async (b, ev) => {
 });
 
 // ---- 8d. Desktop: sensible proportions and a row of cards ----
-{
+if (!FROM) {
   const b = await launch({ url: "http://localhost:5173/?debug", width: 1280, height: 800, scale: 1, mobile: false });
   const ev = (js) => b.evaluate(js);
   await sleep(400);
@@ -388,7 +393,7 @@ await session("&signedin", async (b, ev) => {
 });
 
 // ---- 13. On start.ng (mapped locally): not signed in means no playing, only a sign-in button ----
-{
+if (!FROM) {
   const b = await launch({
     url: "http://suwe-test.start.ng:5173/",
     args: ["--host-resolver-rules=MAP suwe-test.start.ng 127.0.0.1"],
@@ -410,7 +415,7 @@ await session("&signedin", async (b, ev) => {
 }
 
 // ---- 14. Sound: starts on the first tap, music runs, toggles work and are remembered ----
-{
+if (!FROM) {
   const b = await launch({ url: "http://localhost:5173/?debug" });
   const ev = (js) => b.evaluate(js);
   await sleep(400);
@@ -420,7 +425,13 @@ await session("&signedin", async (b, ev) => {
   await sleep(1500);
   check((await ev(`__suwe.audio.state()`)) === "running", "the first tap starts the audio engine");
   const steps = await ev(`__suwe.audio.musicSteps()`);
-  check(steps >= 8, `music is playing (${steps} steps scheduled in 1.5s)`);
+  const clock = await ev(`__suwe.audio.time()`);
+  if (clock < 0.5) {
+    // Headless Chrome on some machines has no working audio output, so the audio clock never moves.
+    console.log(`SKIP  music scheduling: this machine's audio clock is not running (t=${clock.toFixed(3)}s)`);
+  } else {
+    check(steps >= 8, `music is playing (${steps} steps scheduled in 1.5s)`);
+  }
   // Music off: scheduling stops.
   await ev(`document.getElementById('setup').hidden || document.getElementById('menu-btn')`);
   await ev(`document.querySelector('#setup .setup-back')?.click()`);
@@ -453,6 +464,216 @@ await session("&signedin", async (b, ev) => {
   if (b.problems.length) console.log(b.problems.join("\n"));
   await b.close();
 }
+
+// ---- 15. How to play: seven slides, "New" badge, "Try it now" opens solo practice ----
+await session("", async (b, ev) => {
+  check((await ev(`document.getElementById('howto-new').hidden`)) === false, "How to play shows a New badge at first");
+  await ev(`document.getElementById('open-howto').click()`);
+  await sleep(300);
+  check((await ev(`document.querySelectorAll('.tut-dots i').length`)) === 7, "the tutorial has 7 steps");
+  check((await ev(`document.querySelector('.setup-title').textContent`)) === "The court", "it starts with the court");
+  for (let i = 0; i < 6; i++) await ev(`document.querySelector('.tut-nav .big').click()`);
+  check((await ev(`document.querySelector('.tut-nav .big').textContent`)) === "Try it now", "last step offers Try it now");
+  await ev(`document.querySelector('.tut-nav .opt').click()`);
+  check((await ev(`document.querySelector('.setup-sub').textContent`)) === "Step 6 of 7", "Back goes to the previous step");
+  await ev(`document.querySelector('.tut-nav .big').click()`);
+  await ev(`document.querySelector('.tut-nav .big').click()`);
+  check((await ev(`document.getElementById('setup').hidden`)) === false, "Try it now opens the player setup");
+  check((await ev(`document.querySelector('.chip.on').textContent`)) === "1 player", "...set to solo practice");
+  await ev(`document.querySelector('#setup .setup-back').click()`);
+  check((await ev(`document.getElementById('howto-new').hidden`)) === true, "the New badge is gone after viewing");
+  check(b.problems.length === 0, "tutorial animations run without errors");
+});
+
+// ---- 16. Settings ----
+await session("", async (b, ev) => {
+  await ev(`document.getElementById('open-settings').click()`);
+  await sleep(200);
+  check((await ev(`document.getElementById('settings').hidden`)) === false, "Settings opens");
+  check((await ev(`document.getElementById('discard-save').hidden`)) === true, "no saved match to delete yet");
+  await ev(`document.getElementById('opt-sfx').click()`);
+  check((await ev(`document.getElementById('opt-sfx').textContent`)) === "Sound effects: Off", "a sound switch flips");
+  await ev(`document.getElementById('settings-back').click()`);
+  check((await ev(`document.getElementById('menu').hidden`)) === false, "Back returns to the menu");
+});
+
+// ---- 17. Saved matches ----
+await session("", async (b, ev) => {
+  check((await ev(`document.getElementById('continue').hidden`)) === true, "no Continue button without a saved match");
+  await ev(`document.getElementById('play').click()`);
+  await sleep(200);
+  await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`); // seat 2: Person
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  check((await ev(`__suwe.saved !== null`)) === true, "starting a match saves it");
+  const o = { x: 0.95, y: -0.6 };
+  const dx = 0.5 - o.x, dy = 0.5 - o.y;
+  const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
+  const st = await ev("__suwe.px(0.95, -0.6)");
+  const len = power * 844 * 0.22;
+  const fx = st.x - Math.sin(angle) * len, fy = st.y + Math.cos(angle) * len;
+  await b.touch("touchStart", st.x, st.y);
+  await b.touch("touchMove", fx, fy);
+  await sleep(50);
+  await b.touch("touchEnd", fx, fy);
+  await idle(ev);
+  check((await ev(`__suwe.game.phase`)) === "hop", "stone thrown into square 1, mid-turn");
+  const before = await ev(`JSON.stringify(__suwe.game)`);
+  check((await ev(`JSON.stringify(__suwe.saved.game)`)) === before, "the save matches the match exactly");
+  // Close the tab, come back: Continue puts everything back.
+  await ev(`location.reload()`);
+  await sleep(1500);
+  check((await ev(`document.getElementById('continue').hidden`)) === false, "after a reload, Continue match is offered");
+  await ev(`document.getElementById('continue').click()`);
+  await sleep(300);
+  check((await ev(`JSON.stringify(__suwe.game)`)) === before, "the resumed match is identical, mid-hop");
+  check((await ev(`document.getElementById('hint').textContent`)).length > 0 && (await ev(`__suwe.game.phase`)) === "hop", "and it is playable: waiting for the next hop");
+  check((await ev(`__suwe.saved.elapsed >= 0`)) === true, "match time is kept");
+  // Pausing keeps the save; starting a new match asks first.
+  await ev(`window.confirm = () => true`);
+  await ev(`document.getElementById('menu-btn').click()`);
+  await sleep(200);
+  check((await ev(`document.getElementById('continue').hidden`)) === false, "pausing from the menu keeps the save");
+  let asked = "";
+  await ev(`window.confirm = (m) => { window.__asked = m; return false; }`);
+  await ev(`document.getElementById('play').click()`);
+  asked = await ev(`window.__asked`);
+  check(/saved match will be lost/.test(asked ?? "") && (await ev(`document.getElementById('setup').hidden`)) === true, "Play warns before replacing a saved match, and cancel stays put");
+  await ev(`window.confirm = () => true`);
+  await ev(`document.getElementById('play').click()`);
+  check((await ev(`document.getElementById('setup').hidden`)) === false, "confirming goes on to a new match");
+  // Settings can delete it.
+  await ev(`document.querySelector('#setup .setup-back').click()`);
+  await ev(`document.getElementById('open-settings').click()`);
+  check((await ev(`document.getElementById('discard-save').hidden`)) === false, "Settings offers to delete the saved match");
+  await ev(`document.getElementById('discard-save').click()`);
+  check((await ev(`__suwe.saved`)) === null, "deleting works");
+});
+
+// ---- 17b. Broken or someone else's saves are ignored ----
+await session("", async (b, ev) => {
+  for (const [label, value] of [
+    ["not JSON", "{oops"],
+    ["empty game", JSON.stringify({ v: 1, owner: "local", game: {}, elapsed: 5 })],
+    ["wrong version", JSON.stringify({ v: 9, owner: "local", game: {}, elapsed: 5 })],
+  ]) {
+    await ev(`localStorage.setItem('suwe.match', ${JSON.stringify(value)})`);
+    await ev(`location.reload()`);
+    await sleep(900);
+    check((await ev(`document.getElementById('continue').hidden`)) === true, `a broken save (${label}) is ignored`);
+    check((await ev(`localStorage.getItem('suwe.match')`)) === null, `...and cleaned up (${label})`);
+  }
+  // A real save that belongs to another player.
+  await ev(`document.getElementById('play').click()`);
+  await sleep(150);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(300);
+  await ev(`window.confirm = () => true`); // a reload brings back the real dialog
+  await ev(`document.getElementById('menu-btn').click()`); // pause (a running match re-saves itself)
+  await sleep(200);
+  await ev(`(() => { const d = JSON.parse(localStorage.getItem('suwe.match')); d.owner = "someone-else"; localStorage.setItem('suwe.match', JSON.stringify(d)); })()`);
+  await ev(`location.reload()`);
+  await sleep(900);
+  check((await ev(`document.getElementById('continue').hidden`)) === true, "another player's saved match is not offered");
+});
+
+// ---- 18. Leaderboard and score saving ----
+await session("&signedin", async (b, ev) => {
+  // Without start.ng there is nothing to show.
+  await ev(`document.getElementById('open-lb').click()`);
+  await sleep(300);
+  check((await ev(`document.getElementById('lb-status').textContent`)).includes("suwe.start.ng"), "locally it says the leaderboard works on suwe.start.ng");
+  await ev(`document.getElementById('lb-back').click()`);
+  // A fake start.ng answers.
+  await ev(`window.__sent = []; __suwe.setTransport(async (msg) => {
+    window.__sent.push(msg);
+    if (msg.type === 'startng:leaderboard') return { ok: true, entries: [
+      { rank: 1, player_id: 7, name: 'Trini', score: 8, stats: { houses: 8, accuracy: 91, mistakes: 3, seconds: 400 } },
+      { rank: 2, player_id: 42, name: 'Abimbola', score: 6, stats: { houses: 6, accuracy: 80, mistakes: 5, seconds: 521 } },
+    ] };
+    if (msg.type === 'startng:score') return { ok: true, result: { best: msg.stats.houses, improved: true, rank: 2, stats: msg.stats } };
+    return null;
+  })`);
+  await ev(`document.getElementById('open-lb').click()`);
+  await sleep(300);
+  check((await ev(`document.querySelectorAll('#lb-rows tr').length`)) === 2, "leaderboard lists the players");
+  check((await ev(`document.querySelector('#lb-rows tr').textContent`)).includes("Trini") && (await ev(`document.querySelector('#lb-rows tr').textContent`)).includes("91%"), "with houses, accuracy and name");
+  check((await ev(`document.querySelectorAll('#lb-rows tr.me').length`)) === 1 && (await ev(`document.querySelector('#lb-rows tr.me').textContent`)).includes("Abimbola"), "my own row is highlighted");
+  check((await ev(`document.querySelector('#lb-rows tr.me').textContent`)).includes("8:41"), "match time is shown as m:ss");
+  await ev(`window.__sent.length = 0`);
+  // Finish a match against a Hard computer: 7 houses v 4, last square decides.
+  const finish = async (level, expectText) => {
+    await ev(`(async () => {
+      const g = await import("./js/engine/game.js");
+      const s = g.createGame({ players: [
+        { id: "a", name: "Abimbola", color: "#d6433b", look: null },
+        ${level ? `{ id: "b", name: "Tunde", color: "#3b78c9", ai: "${level}", look: null }` : `{ id: "b", name: "Bola", color: "#3b78c9", look: null }`},
+      ] });
+      for (let n = 1; n <= 7; n++) { s.owners[n - 1] = "a"; s.players[0].houses.push(n); }
+      for (let n = 8; n <= 11; n++) { s.owners[n - 1] = "b"; s.players[1].houses.push(n); }
+      s.players[0].stats = { throws: 20, hits: 15, mistakes: 3 };
+      s.phase = "ra_ile";
+      window.__suwe.load(s);
+    })()`);
+    await sleep(300);
+    await b.tap(30, 400);
+    await sleep(200);
+    const o = { x: 0.95, y: -0.6 };
+    const dx = 1.5 - o.x, dy = 0.5 - o.y; // square 12
+    const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
+    const st = await ev("__suwe.px(0.95, -0.6)");
+    const len = power * 844 * 0.22;
+    const fx = st.x - Math.sin(angle) * len, fy = st.y + Math.cos(angle) * len;
+    await b.touch("touchStart", st.x, st.y);
+    await b.touch("touchMove", fx, fy);
+    await sleep(50);
+    await b.touch("touchEnd", fx, fy);
+    await idle(ev);
+    await sleep(1200);
+    return ev(`document.getElementById('results-score').textContent`);
+  };
+  const msg = await finish("hard");
+  const sent = await ev(`JSON.stringify(window.__sent.filter(m => m.type === 'startng:score'))`);
+  const scores = JSON.parse(sent);
+  check(scores.length === 1, "a finished match vs Hard submits one score");
+  const st = scores[0].stats;
+  check(JSON.stringify(Object.keys(st)) === JSON.stringify(["houses", "accuracy", "mistakes", "seconds"]), "it sends exactly the four stats");
+  check(Object.values(st).every((v) => Number.isInteger(v) && v >= 0 && v <= 1e9), "each a whole number in range");
+  check(st.houses === 8 && st.mistakes === 3, `with the right values (houses ${st.houses}, mistakes ${st.mistakes})`);
+  check(msg.includes("New best") && msg.includes("#2"), `results show the rank ("${msg}")`);
+  await ev(`window.__sent.length = 0`);
+  const easy = await finish("easy");
+  check((await ev(`window.__sent.filter(m => m.type === 'startng:score').length`)) === 0, "Easy matches submit nothing");
+  check(easy.includes("Easy matches don't count"), "and the results say why");
+  const people = await finish(null);
+  check((await ev(`window.__sent.filter(m => m.type === 'startng:score').length`)) === 0 && people === "", "matches between people never submit");
+});
+
+// ---- 19. Voice lines: spoken only when switched on, and only key phrases ----
+await session("", async (b, ev) => {
+  await ev(`window.__said = []; speechSynthesis.speak = (u) => window.__said.push(u.text);`);
+  await ev(`document.getElementById('play').click()`);
+  await sleep(150);
+  await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`);
+  await ev(`document.querySelector('#setup .big').click()`);
+  await sleep(500);
+  check((await ev(`window.__said.length`)) === 0, "voice is off by default: nothing is spoken");
+  await ev(`document.getElementById('opt-voice').click()`); // on
+  const badThrow = async () => {
+    const s = await ev("__suwe.px(0.95, -0.6)");
+    await b.touch("touchStart", s.x, s.y);
+    await b.touch("touchMove", s.x, s.y + 180);
+    await sleep(50);
+    await b.touch("touchEnd", s.x, s.y + 180);
+    await idle(ev);
+    await sleep(500);
+  };
+  await badThrow();
+  const said = await ev(`window.__said`);
+  check(said.includes("Try again"), `a miss says "Try again" (${said.join(" | ")})`);
+  check(said.includes("Oya, your turn"), "the next player is called with \"Oya, your turn\"");
+  check(said.every((t) => t.length < 30), "only short key phrases are spoken");
+});
 
 console.log(fails.length ? `\n${fails.length} FAILED` : "\nall passed");
 process.exit(fails.length ? 1 : 0);

@@ -163,7 +163,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
               if (e.square) onFlash({ square: e.square, color: e.hit ? GREEN : RED });
             },
           });
-          if (e.hit) queue.push({ dur: 1, run() {}, end: () => say("Now hop!") });
+          if (e.hit) queue.push({ dur: 1, run() {}, end: () => say("Now hop!", { tone: "good" }) });
           break;
         }
         case "hop":
@@ -201,7 +201,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
             },
             end() {
               pose.bend = 0;
-              say("Stone in hand!");
+              say("Stone in hand!", { tone: "good" });
             },
           });
           break;
@@ -231,7 +231,10 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
           queue.push({
             dur: 520,
             start() {
-              say(FAIL_LINES[e.reason] ?? "Try again");
+              say(FAIL_LINES[e.reason] ?? "Try again!", {
+                tone: "bad",
+                speech: /line/.test(e.reason) ? "No match line o" : "Try again",
+              });
               pose.oneLeg = false;
             },
             run(p) {
@@ -252,14 +255,14 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
           });
           break;
         case "advance":
-          queue.push({ dur: 500, run() {}, start: () => say(`Correct! Next: square ${e.to}`) });
+          queue.push({ dur: 500, run() {}, start: () => say(`Correct! Next: square ${e.to}`, { tone: "good" }) });
           break;
         case "circuit":
           queue.push(faceViewer());
           queue.push({
             dur: 1000,
             run() {},
-            start: () => say("All 12 done! Now Ra Ile: throw over your shoulder"),
+            start: () => say("All 12 done! Now Ra Ile: throw over your shoulder", { tone: "good" }),
           });
           break;
         case "backthrow":
@@ -269,7 +272,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
             }),
           );
           if (!e.claimed) {
-            queue.push({ dur: 1000, run() {}, start: () => say("No house this time"), end: home });
+            queue.push({ dur: 1000, run() {}, start: () => say("No house this time", { tone: "bad" }), end: home });
           }
           break;
         case "house":
@@ -316,7 +319,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
           });
           break;
         case "out":
-          queue.push({ dur: 900, run() {}, start: () => say(`${e.name} has no hearts left`) });
+          queue.push({ dur: 900, run() {}, start: () => say(`${e.name} has no hearts left`, { tone: "bad" }) });
           break;
         case "match_over":
           queue.push({
@@ -379,17 +382,30 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
       view.mark = null;
       home();
     },
-    // Put the picture where saved state says it should be.
+    // Put the picture where saved state says it should be (resuming a saved match).
     sync(state) {
       resetPose();
-      if (state.at === "start") return home();
-      const to = spot(state.at);
-      view.hero.x = to.x;
-      view.hero.y = to.y;
-      pose.oneLeg = true;
-      pose.back = state.facing === "away";
+      view.houses = state.owners
+        .map((id, i) => {
+          const p = id && state.players.find((q) => q.id === id);
+          return p ? { square: i + 1, color: p.color ?? "#e03131", name: p.name } : null;
+        })
+        .filter(Boolean);
+      view.mark = state.phase === "tiebreak" ? { x: TIE_MARK.x, y: TIE_MARK.y } : null;
+      view.flash = null;
+      if (state.at === "start") {
+        home();
+        pose.back = state.facing === "away";
+      } else {
+        const to = spot(state.at);
+        view.hero.x = to.x;
+        view.hero.y = to.y;
+        pose.oneLeg = true;
+        pose.back = state.facing === "away";
+      }
       pose.hold = state.holding;
-      view.stone = state.stone ? { x: state.stone.x, y: state.stone.y, h: 0 } : null;
+      if (state.stone) view.stone = { x: state.stone.x, y: state.stone.y, h: 0 };
+      else if (state.holding) view.stone = null;
     },
   };
 }

@@ -278,6 +278,7 @@ export function createAudio(saved, save = () => {}) {
     unlock,
     state: () => ctx?.state ?? "none",
     played: () => log,
+    time: () => ctx?.currentTime ?? 0, // the audio clock (for tests)
     musicSteps: () => step, // how many music steps have been scheduled (for tests)
     sfx(name) {
       if (!ctx || !prefs.sfx || ctx.state !== "running" || !SFX[name]) return;
@@ -303,15 +304,26 @@ export function createAudio(saved, save = () => {}) {
       persist();
       if (!on) window.speechSynthesis?.cancel();
     },
-    // Optional spoken voice lines (off by default).
+    // Optional spoken voice lines (off by default). Prefers a Nigerian English
+    // voice, then British, then any English one the device has.
     speak(text) {
-      if (!prefs.voice || !window.speechSynthesis) return;
+      if (!prefs.voice || !window.speechSynthesis || !text) return;
       try {
-        window.speechSynthesis.cancel();
+        const synth = window.speechSynthesis;
+        const voices = synth.getVoices();
+        const pick = (re) => voices.find((v) => re.test(v.lang.replace("_", "-")));
+        const voice = pick(/^en-NG/i) ?? pick(/^en-GB/i) ?? pick(/^en/i) ?? null;
+        synth.cancel();
         const u = new SpeechSynthesisUtterance(text);
-        u.lang = "en-NG";
-        u.rate = 1.05;
-        window.speechSynthesis.speak(u);
+        if (voice) {
+          u.voice = voice;
+          u.lang = voice.lang;
+        } else {
+          u.lang = "en-NG";
+        }
+        u.rate = 0.95;
+        u.pitch = 1.05;
+        synth.speak(u);
       } catch {
         /* ignore */
       }

@@ -3,6 +3,7 @@ import { DEFAULT_STYLE, normalizeStyle } from "./render/character.js";
 import { createDirector } from "./director.js";
 import { createSetup, levelStars } from "./setup.js";
 import { createAudio } from "./audio.js";
+import { createTutorial } from "./tutorial.js";
 import {
   createGame,
   applyMove,
@@ -22,7 +23,7 @@ import {
   canPlay,
   msToNextLife,
 } from "./lives.js";
-import { onStartNg, signInUrl, watchPlayer } from "./startng.js";
+import { onStartNg, signInUrl, watchPlayer, saveScore, loadLeaderboard, setTransport } from "./startng.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -36,6 +37,13 @@ const store = {
       return JSON.parse(localStorage.getItem(key));
     } catch {
       return null;
+    }
+  },
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* ignore */
     }
   },
   set(key, value) {
@@ -105,6 +113,7 @@ const localPlayer = () =>
   params.has("signedin")
     ? {
         signedIn: true,
+        id: 42,
         name: "Abimbola",
         account: "abimbola",
         style: {
@@ -183,11 +192,13 @@ setInterval(() => renderLives(), 1000);
 
 // --- toast (voice line bubble) --------------------------------------------------------
 let toastTimer;
-function say(text) {
+// tone: "good" | "bad" tints the bubble. speech: the short phrase to read aloud when
+// Voice lines are on (only key lines are spoken, not every message).
+function say(text, { tone = "", speech = "" } = {}) {
   const el = $("toast");
   el.textContent = text;
-  audio.speak(text);
-  el.classList.add("show");
+  el.className = `${tone} show`.trim();
+  if (speech) audio.speak(speech);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 1600);
 }
@@ -240,8 +251,9 @@ let announced = false;
 function startTurn() {
   applyLooks();
   const p = current();
-  if (solo()) say(announced ? "Throw again!" : "Oya, throw!");
-  else say(p.ai ? `${p.name} is playing...` : `${p.name}, your turn!`);
+  if (solo()) say(announced ? "Throw again!" : "Oya, throw!", { speech: announced ? "" : "Oya, throw" });
+  else if (p.ai) say(`${p.name} is playing...`);
+  else say(`${p.name}, your turn!`, { speech: "Oya, your turn" });
   announced = true;
   refreshHud();
 }
@@ -338,6 +350,7 @@ function commit(r) {
   if (r.rejected) return;
   game = r.state;
   syncHearts();
+  saveMatch();
   view.aim = null;
   view.hint = null;
   $("meter").classList.add("locked");
@@ -424,13 +437,158 @@ $("pickup").addEventListener("click", () => {
   if (humanTurn() && game.phase === "pickup") submit({ type: "pickup", timing: needle(performance.now()) });
 });
 
+// --- saved matches ---------------------------------------------------------------------------
+// The whole match is plain JSON, so it is saved after every move and can be resumed
+// exactly where it was (even in the middle of a hop).
+const SAVE_KEY = "suwe.match";
+let elapsedBase = 0; // time spent on this match in earlier visits
+const matchElapsed = () => elapsedBase + (matchStart ? Date.now() - matchStart : 0);
+const owner = () => me.id ?? "local";
+
+function saveMatch() {
+  if (!game || game.over) return;
+  store.set(SAVE_KEY, { v: 1, owner: owner(), game, elapsed: matchElapsed(), savedAt: Date.now() });
+}
+const clearSave = () => store.remove(SAVE_KEY);
+
+// A saved match only counts if it is whole and belongs to whoever is playing now.
+function loadSave() {
+  const d = store.get(SAVE_KEY);
+  let stored = false;
+  try {
+    stored = localStorage.getItem(SAVE_KEY) !== null;
+  } catch {
+    /* ignore */
+  }
+  const g = d?.game;
+  const ok =
+    d?.v === 1 &&
+    String(d.owner) === String(owner()) &&
+    Number.isFinite(d.elapsed) &&
+    g &&
+    !g.over &&
+    Array.isArray(g.players) &&
+    g.players.length >= 1 &&
+    g.players.length <= 4 &&
+    g.players.every(
+      (p) => p && typeof p.id === "string" && Number.isFinite(p.lives) && Number.isFinite(p.target) && Array.isArray(p.houses) && p.stats,
+    ) &&
+    Array.isArray(g.owners) &&
+    g.owners.length === 12 &&
+    ["throw", "hop", "pickup", "ra_ile", "tiebreak"].includes(g.phase) &&
+    Number.isInteger(g.current) &&
+    g.current >= 0 &&
+    g.current < g.players.length &&
+    (g.phase !== "hop" && g.phase !== "pickup" ? true : Array.isArray(g.turn?.steps));
+  if (!ok) {
+    if (stored) clearSave(); // unreadable or incomplete: remove it so it can't come back
+    return null;
+  }
+  return d;
+}
+
+function resumeMatch() {
+  const d = loadSave();
+  if (!d) return;
+  game = d.game;
+  matchId++;
+  clearTimeout(aiTimer);
+  aiTimer = null;
+  announced = true;
+  lastKey = "";
+  elapsedBase = d.elapsed;
+  matchStart = Date.now();
+  director.reset();
+  director.sync(game);
+  mode("play");
+  startTurn();
+  refreshHud();
+}
+
+// Keep the clock right if the tab is closed mid-match.
+addEventListener("pagehide", saveMatch);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) saveMatch();
+});
+
+// --- leaderboard ---------------------------------------------------------------------------------
+// Only finished matches against the computer on Medium or Hard count: Easy would flood the board.
+const BOARD_COUNTS = (cpu) => cpu && cpu.ai && cpu.ai !== "easy";
+const whole = (v) => Math.max(0, Math.min(1_000_000_000, Math.round(v)));
+
+async function submitScore(g, result, elapsedMs) {
+  const el = $("results-score");
+  el.textContent = "";
+  const cpu = g.players.length === 2 ? g.players.find((p) => p.ai) : null;
+  if (!cpu) return;
+  if (!BOARD_COUNTS(cpu)) {
+    el.textContent = "Easy matches don't count for the leaderboard. Try Medium or Hard!";
+    return;
+  }
+  if (!["all_claimed", "tiebreak"].includes(result.reason)) {
+    el.textContent = "Only finished matches count for the leaderboard.";
+    return;
+  }
+  if (!me.signedIn) return;
+  const human = g.players[0];
+  el.textContent = "Saving your score...";
+  // Exactly the stats named in startng.json, each a whole number.
+  const reply = await saveScore({
+    houses: whole(human.houses.length),
+    accuracy: whole(accuracy(human)),
+    mistakes: whole(human.stats.mistakes),
+    seconds: whole(elapsedMs / 1000),
+  });
+  if (!reply?.ok) el.textContent = "Couldn't save your score this time.";
+  else {
+    const r = reply.result ?? {};
+    el.textContent = r.improved ? `New best! You're #${r.rank} on the leaderboard.` : `Saved. Your best is #${r.rank} on the leaderboard.`;
+  }
+}
+
+async function showLeaderboard() {
+  const status = $("lb-status");
+  const table = $("lb-table");
+  table.hidden = true;
+  status.textContent = "Loading...";
+  const reply = await loadLeaderboard(10);
+  if (document.body.dataset.mode !== "leaderboard") return;
+  if (!reply?.ok) {
+    status.textContent = onStartNg() ? "Couldn't reach start.ng. Try again in a moment." : "The leaderboard works on suwe.start.ng.";
+    return;
+  }
+  const entries = reply.entries ?? [];
+  if (!entries.length) {
+    status.textContent = "No scores yet. Beat the computer on Medium or Hard to be first!";
+    return;
+  }
+  status.textContent = "";
+  const rows = entries.map((e) => {
+    const tr = document.createElement("tr");
+    if (me.id != null && e.player_id === me.id) tr.className = "me";
+    const st = e.stats ?? {};
+    const cells = [e.rank, e.name, st.houses ?? e.score, `${st.accuracy ?? 0}%`, st.mistakes ?? 0, fmt((st.seconds ?? 0) * 1000)];
+    cells.forEach((v) => {
+      const td = document.createElement("td");
+      td.textContent = String(v);
+      tr.append(td);
+    });
+    return tr;
+  });
+  $("lb-rows").replaceChildren(...rows);
+  table.hidden = false;
+}
+
 // --- screens ---------------------------------------------------------------------------------------
+const SCREENS = ["menu", "setup", "gate", "results", "howto", "settings", "leaderboard"];
 function mode(m) {
   document.body.dataset.mode = m;
-  $("menu").hidden = m !== "menu";
-  $("setup").hidden = m !== "setup";
-  $("gate").hidden = m !== "gate";
-  $("results").hidden = m !== "results";
+  for (const id of SCREENS) $(id).hidden = id !== m;
+  if (m === "howto") tutorial.start();
+  else tutorial.stop();
+  if (m === "menu") renderMenu();
+  if (m === "settings") renderSettings();
+  if (m === "leaderboard") showLeaderboard();
   renderLives(true);
 }
 
@@ -491,10 +649,14 @@ function showResults(result) {
     return tr;
   });
   $("results-rows").replaceChildren(...rows);
-  $("results-time").textContent = `Match time ${fmt(Date.now() - matchStart)}`;
+  const elapsed = matchElapsed();
+  $("results-time").textContent = `Match time ${fmt(elapsed)}`;
   $("results-hearts").textContent = lives.lives
     ? ""
     : `You have no hearts left. Next one in ${fmt(msToNextLife(lives, Date.now()))}.`;
+  clearSave();
+  submitScore(g, result, elapsed);
+  if (!result.tie) audio.speak("Winner");
   game = null;
   endMatchState();
   director.reset();
@@ -538,6 +700,7 @@ $("play").addEventListener("click", () => {
     );
     return;
   }
+  if (loadSave() && !confirm("Start a new match? Your saved match will be lost.")) return;
   setup.show();
   mode("setup");
 });
@@ -558,18 +721,63 @@ function startMatch(cfg) {
   announced = false;
   lastKey = "";
   matchStart = Date.now();
+  elapsedBase = 0;
   director.reset();
+  saveMatch();
   mode("play");
   startTurn();
 }
 
 $("menu-btn").addEventListener("click", () => {
-  if (!confirm("Leave this match?")) return;
+  if (!confirm("Pause this match? You can continue it from the menu.")) return;
+  saveMatch();
   endMatchState();
   game = null;
   director.reset();
   view.hint = null;
   mode("menu");
+});
+
+// --- menu, settings and how to play ---------------------------------------------------------------
+const tutorial = createTutorial($("howto"), {
+  onClose: () => mode("menu"),
+  onTry: () => {
+    store.set("suwe.seenTutorial", true);
+    if (needsSignIn()) location.href = signInUrl();
+    else {
+      setup.show({ count: 1 });
+      mode("setup");
+    }
+  },
+});
+
+function renderMenu() {
+  $("continue").hidden = !loadSave();
+  $("howto-new").hidden = Boolean(store.get("suwe.seenTutorial"));
+}
+
+function renderSettings() {
+  $("discard-save").hidden = !loadSave();
+  renderAudioButtons();
+}
+
+$("continue").addEventListener("click", () => {
+  if (needsSignIn()) location.href = signInUrl();
+  else resumeMatch();
+});
+$("open-howto").addEventListener("click", () => {
+  store.set("suwe.seenTutorial", true);
+  mode("howto");
+});
+$("open-lb").addEventListener("click", () => mode("leaderboard"));
+$("open-settings").addEventListener("click", () => mode("settings"));
+$("settings-back").addEventListener("click", () => mode("menu"));
+$("lb-back").addEventListener("click", () => mode("menu"));
+$("discard-save").addEventListener("click", () => {
+  if (confirm("Delete your saved match?")) {
+    clearSave();
+    renderSettings();
+  }
 });
 
 // --- frame loop ---------------------------------------------------------------------------------------
@@ -611,6 +819,10 @@ if (params.has("debug") && !onStartNg()) {
     zone: () => (game.phase === "throw" ? 1 : expectation(game).zone),
     spendLife,
     audio,
+    setTransport,
+    get saved() {
+      return store.get(SAVE_KEY);
+    },
     // Drop in a crafted match state (for tests).
     load(state) {
       game = state;

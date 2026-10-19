@@ -1,0 +1,27 @@
+{
+  "leaderboard": {
+    "stats": [
+      {
+        "key": "houses",
+        "label": "Houses owned",
+        "order": "highest"
+      },
+      {
+        "key": "accuracy",
+        "label": "Accuracy %",
+        "order": "highest"
+      },
+      {
+        "key": "mistakes",
+        "label": "Mistakes",
+        "order": "lowest"
+      },
+      {
+        "key": "seconds",
+        "label": "Match time",
+        "order": "lowest",
+        "format": "time"
+      }
+    ]
+  }
+}

@@ -20,8 +20,15 @@ function connectFrame() {
   return frame;
 }
 
+// Tests can swap in a fake start.ng. It receives (message, replyType) and returns the reply.
+let transport = null;
+export const setTransport = (fn) => {
+  transport = fn;
+};
+
 // Sends a message and resolves to start.ng's reply, or null if it didn't answer.
 async function askStartNg(message, replyType, timeoutMs = 5000) {
+  if (transport) return transport(message, replyType);
   if (!onStartNg()) return null;
   // If start.ng's connect page never loads, stop waiting after the timeout.
   let el;
@@ -65,11 +72,31 @@ export async function whoIsPlaying() {
   const player = user ?? reply?.guest;
   return {
     signedIn: Boolean(user),
+    id: user?.id ?? null,
     name: player?.name ?? "Player",
     account: user?.account ?? null,
     style: player?.style ?? null,
     face: player?.face ?? null,
   };
+}
+
+// Save a finished run. stats must be exactly the keys in startng.json, each a whole number.
+// Resolves to { ok, result } or null if start.ng did not answer.
+export async function saveScore(stats) {
+  try {
+    return await askStartNg({ type: "startng:score", stats }, "startng:scoreSaved");
+  } catch {
+    return null;
+  }
+}
+
+// The top players, for everyone (guests included). Resolves to { ok, entries } or null.
+export async function loadLeaderboard(limit = 10) {
+  try {
+    return await askStartNg({ type: "startng:leaderboard", limit }, "startng:leaderboardData");
+  } catch {
+    return null;
+  }
 }
 
 export function signInUrl() {

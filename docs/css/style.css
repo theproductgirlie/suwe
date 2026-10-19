@@ -18,6 +18,9 @@
 button {
   cursor: pointer;
 }
+[hidden] {
+  display: none !important;
+}
 
 html,
 body {
@@ -592,6 +595,7 @@ body:not([data-mode="play"]) #stage {
   justify-content: center;
 }
 .card {
+  box-sizing: border-box;
   display: flex;
   max-width: 340px;
   flex-direction: column;
@@ -625,6 +629,12 @@ body:not([data-mode="play"]) #stage {
   pointer-events: none;
   transition: opacity 0.2s, transform 0.2s;
   line-height: 1.15;
+}
+#toast.good {
+  border-bottom: 5px solid #2b8a3e;
+}
+#toast.bad {
+  border-bottom: 5px solid #c92a2a;
 }
 #toast.show {
   opacity: 1;
@@ -830,4 +840,94 @@ tr.win td {
 .opt.off {
   color: var(--ink2);
   opacity: 0.65;
+}
+
+/* ---- menu links, settings, tutorial, leaderboard ---- */
+.menu-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.opt {
+  position: relative;
+}
+.opt .new {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #d6433b;
+  color: #fff;
+  font-size: 11px;
+}
+.opt .new[hidden] {
+  display: none;
+}
+.big.alt {
+  background: var(--ink);
+  box-shadow: 0 5px 0 #33200f;
+}
+.settings-card {
+  gap: 10px;
+}
+.opt.row {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 16px;
+  text-align: left;
+  background: var(--track);
+  box-shadow: none;
+}
+.opt.row.off {
+  opacity: 0.7;
+}
+.tut-canvas {
+  width: min(92vw, 440px);
+  aspect-ratio: 400 / 290;
+  margin-top: 4px;
+  border-radius: 20px;
+  background: #ead7a6;
+  box-shadow: 0 6px 18px rgba(84, 56, 31, 0.13);
+}
+.tut-text {
+  max-width: min(92vw, 440px);
+  margin: 14px 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+}
+.tut-dots {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 14px;
+}
+.tut-dots i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--line);
+  cursor: pointer;
+}
+.tut-dots i.on {
+  background: var(--ink);
+}
+.tut-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tut-nav .big {
+  padding: 12px 36px;
+}
+.lb-card {
+  min-width: min(92vw, 420px);
+}
+#lb-table td:nth-child(2),
+#lb-table th:nth-child(2) {
+  text-align: left;
+}
+#lb-table tr.me td {
+  background: #fff3bf;
 }

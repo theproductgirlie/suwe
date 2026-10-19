@@ -1,10 +1,11 @@
 // Minimal Chrome DevTools Protocol helper for phone-sized headless runs.
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+process.setMaxListeners(0); // each browser adds exit handlers; a long run opens many
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function launch({ width = 390, height = 844, url, scale = 2, mobile = true, args = [] }) {
@@ -15,6 +16,24 @@ export async function launch({ width = 390, height = 844, url, scale = 2, mobile
     [`--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--headless=new", "--disable-gpu", "--no-first-run", ...args, "about:blank"],
     { stdio: "ignore" },
   );
+  // Never leave a browser behind, even if this script is stopped.
+  const cleanup = () => {
+    try {
+      chrome.kill("SIGKILL");
+    } catch {}
+    try {
+      rmSync(profile, { recursive: true, force: true });
+    } catch {}
+  };
+  process.once("exit", cleanup);
+  process.once("SIGTERM", () => {
+    cleanup();
+    process.exit(143);
+  });
+  process.once("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
   let targets;
   for (let i = 0; i < 50; i++) {
     try {
@@ -76,7 +95,7 @@ export async function launch({ width = 390, height = 844, url, scale = 2, mobile
     },
     async close() {
       ws.close();
-      chrome.kill();
+      cleanup();
     },
   };
 }

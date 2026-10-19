@@ -259,8 +259,10 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
   }
 
   return {
-    show() {
+    // opts.count: open with this many players (the tutorial's "Try it now" opens solo practice).
+    show(opts = {}) {
       seats = [];
+      if (opts.count) count = opts.count;
       render();
     },
   };
