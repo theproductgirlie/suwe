@@ -47,9 +47,11 @@ export async function launch({ width = 390, height = 844, url, scale = 2, mobile
 
   let id = 0;
   const pending = new Map();
+  const listeners = new Map(); // method -> callbacks, for tools that want raw protocol events
   const problems = [];
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
+    if (m.method) for (const fn of listeners.get(m.method) ?? []) fn(m.params);
     if (m.id && pending.has(m.id)) pending.get(m.id)(m.result ?? m.error);
     else if (m.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(m.params.type))
       problems.push(`console.${m.params.type}: ${m.params.args.map((a) => a.value ?? a.description).join(" ")}`);
@@ -81,6 +83,8 @@ export async function launch({ width = 390, height = 844, url, scale = 2, mobile
     send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
 
   return {
+    send,
+    on: (method, fn) => listeners.set(method, [...(listeners.get(method) ?? []), fn]),
     problems,
     evaluate,
     touch,

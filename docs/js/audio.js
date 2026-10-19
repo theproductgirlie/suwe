@@ -65,30 +65,30 @@ function noise(ctx, out, { t, f, f2, q = 1, type = "bandpass", d = 0.1, a = 0.00
 
 // ---- instruments --------------------------------------------------------------------
 
-const inst = {
-  // Low djembe-style bass drum.
+export const inst = {
+  // Low djembe-style bass drum: a soft, round thump (no noise burst, gentle attack),
+  // so it sits under the groove instead of banging.
   djembe(ctx, out, t, gain = 0.5) {
-    tone(ctx, out, { t, f: 150, f2: 62, d: 0.2, gain });
-    noise(ctx, out, { t, f: 220, q: 0.8, d: 0.05, gain: gain * 0.35 });
+    tone(ctx, out, { t, f: 118, f2: 56, d: 0.17, a: 0.012, gain: gain * 0.62 });
   },
-  // Conga: a pitched hand-drum hit (open tone) or a sharp slap.
+  // Conga: a pitched hand-drum hit (open tone) or a softer slap.
   conga(ctx, out, t, slap = false, gain = 0.3) {
     if (slap) {
-      tone(ctx, out, { t, f: 420, f2: 330, d: 0.07, gain: gain * 0.8 });
-      noise(ctx, out, { t, f: 2600, q: 1.5, d: 0.04, gain: gain * 0.55 });
+      tone(ctx, out, { t, f: 420, f2: 330, d: 0.07, a: 0.006, gain: gain * 0.75 });
+      noise(ctx, out, { t, f: 1800, q: 1.2, d: 0.04, a: 0.005, gain: gain * 0.28 });
     } else {
-      tone(ctx, out, { t, f: 260, f2: 200, d: 0.16, gain });
+      tone(ctx, out, { t, f: 260, f2: 200, d: 0.16, a: 0.006, gain });
     }
   },
-  // Shekere: a rattle of beads.
+  // Shekere: a soft rattle of beads (a band of high noise, not a harsh hiss).
   shaker(ctx, out, t, gain = 0.1) {
-    noise(ctx, out, { t, f: 6500, q: 0.7, type: "highpass", d: 0.05, gain });
+    noise(ctx, out, { t, f: 6800, q: 0.9, type: "bandpass", d: 0.05, a: 0.006, gain: gain * 0.8 });
   },
-  // Agogo: a two-pitch metal bell.
+  // Agogo: a two-pitch bell. Sine partials, not square waves, so it rings instead of buzzing.
   agogo(ctx, out, t, high = false, gain = 0.12) {
     const f = high ? 1210 : 905;
-    tone(ctx, out, { t, f, d: 0.16, type: "square", gain: gain * 0.5 });
-    tone(ctx, out, { t, f: f * 1.5, d: 0.1, gain: gain * 0.5 });
+    tone(ctx, out, { t, f, d: 0.2, a: 0.006, gain: gain * 0.55 });
+    tone(ctx, out, { t, f: f * 2.76, d: 0.09, a: 0.006, gain: gain * 0.18 });
   },
   // Thumb piano (kalimba): a soft pluck with a bright, short overtone.
   kalimba(ctx, out, t, f, gain = 0.2) {
@@ -96,8 +96,7 @@ const inst = {
     tone(ctx, out, { t, f: f * 3, d: 0.08, gain: gain * 0.35 });
   },
   bass(ctx, out, t, f, gain = 0.3) {
-    tone(ctx, out, { t, f, d: 0.28, type: "sine", gain });
-    tone(ctx, out, { t, f: f * 2, d: 0.1, type: "triangle", gain: gain * 0.25 });
+    tone(ctx, out, { t, f, d: 0.28, a: 0.01, type: "sine", gain: gain * 0.8 });
   },
 };
 
@@ -125,12 +124,12 @@ export function musicStep(ctx, out, step, t) {
   const bar = Math.floor(step / 16) % 4;
   const s = step % 16;
   // shaker on every step, accented on the off-beats
-  inst.shaker(ctx, out, t, s % 4 === 2 ? 0.13 : s % 2 === 0 ? 0.08 : 0.05);
-  if (DJEMBE_STEPS.includes(s)) inst.djembe(ctx, out, t, s === 0 ? 0.5 : 0.35);
+  inst.shaker(ctx, out, t, s % 4 === 2 ? 0.1 : s % 2 === 0 ? 0.06 : 0.04);
+  if (DJEMBE_STEPS.includes(s)) inst.djembe(ctx, out, t, s === 0 ? 0.5 : 0.32);
   if (CONGA_SLAP.includes(s)) inst.conga(ctx, out, t, true);
   if (CONGA_OPEN.includes(s)) inst.conga(ctx, out, t, false);
   const c = CLAVE_STEPS.indexOf(s);
-  if (c >= 0) inst.agogo(ctx, out, t, c % 2 === 1);
+  if (c >= 0) inst.agogo(ctx, out, t, c % 2 === 1, 0.09);
   if (BASS_STEPS.includes(s)) inst.bass(ctx, out, t, s === 6 || s === 13 ? BASS_ROOT[bar] * 2 : BASS_ROOT[bar]);
   for (const [at, f] of MELODY[bar]) if (at === s) inst.kalimba(ctx, out, t, f);
 }
@@ -217,7 +216,7 @@ export function buildMaster(ctx, destination = ctx.destination) {
   limiter.connect(destination);
   const music = ctx.createGain();
   const sfx = ctx.createGain();
-  music.gain.value = 0.55;
+  music.gain.value = 0.5;
   sfx.gain.value = 1.5;
   music.connect(comp);
   sfx.connect(comp);
