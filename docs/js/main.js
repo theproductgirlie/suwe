@@ -888,6 +888,7 @@ if (params.has("debug") && !onStartNg()) {
     },
     needle: () => needle(performance.now()),
     px: (x, y) => scene.project(x, y),
+    hit: (sx, sy) => scene.hitSquare(sx, sy),
     zone: () => (game.phase === "throw" ? 1 : expectation(game).zone),
     spendLife,
     get view() {
