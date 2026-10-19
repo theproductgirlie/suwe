@@ -1,23 +1,102 @@
-// Canvas 2D scene: a Nigerian compound with a chalk Suwe court in 2.5D.
-// The static backdrop is drawn once per resize into an offscreen canvas; only
-// the moving bits are redrawn each frame, to stay light on low-power phones.
+// Three.js scene: the same Nigerian compound and chalk Suwe court, rendered with WebGL.
+// The camera is orthographic and measured in CSS pixels, so project()/unproject()/hitSquare()
+// behave exactly as in the Canvas 2D version (scene-2d.js) and touch aiming is unchanged.
+//   - the painted compound (sky, wall, trees, court) is a texture on a backdrop plane
+//   - the stone is a real lit 3D sphere with a soft shadow
+//   - characters are sprites, redrawn each frame from their style (see character.js)
+//   - houses, hints, flashes and the aiming line are drawn on a transparent overlay layer
 
+import * as THREE from "../vendor/three.module.min.js";
 import { COLS, ROWS, cellToSquare, squareRect, squareToCell } from "../engine/court.js";
 import { drawCharacter, STOCK } from "./character.js";
 
 const NEAR_SCALE = 1;
 const FAR_SCALE = 0.74; // far end of the court is 74% as wide as the near end
 
+// Character sprite box, in character units: feet sit at (BOX_FEET_X, BOX_FEET_Y) from the top-left.
+const BOX_W = 150;
+const BOX_H = 190;
+const BOX_FEET_X = 75;
+const BOX_FEET_Y = 158;
+
+// Draw order (higher draws later).
+const ORDER = { backdrop: 0, overlay: 1, shadow: 2, stone: 3, waiting: 4, hero: 5 };
+
 // Deterministic wobble for chalk lines (no Math.random: same picture every time).
 const wobble = (i) => Math.sin(i * 12.9898) * 0.5;
 
 export function createScene(canvas) {
-  const ctx = canvas.getContext("2d", { alpha: false });
-  const bg = document.createElement("canvas");
-  const bgCtx = bg.getContext("2d", { alpha: false });
+  // Throws if WebGL is unavailable; main.js then falls back to scene-2d.js.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  renderer.setClearColor(0xe9cf99, 1);
+
+  const world = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(0, 1, 1, 0, -10, 10);
+  camera.position.z = 5;
+
+  world.add(new THREE.AmbientLight(0xffffff, 1.5));
+  const sun = new THREE.DirectionalLight(0xfff1c9, 2.2);
+  sun.position.set(-0.6, 1, 1.2);
+  world.add(sun);
+
+  const makeLayer = (order, opts = {}) => {
+    const cv = document.createElement("canvas");
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: !!opts.transparent, depthTest: false, depthWrite: false, toneMapped: false });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    mesh.renderOrder = order;
+    world.add(mesh);
+    return { cv, tex, mesh, c: cv.getContext("2d", { alpha: !!opts.transparent }) };
+  };
+  const backdrop = makeLayer(ORDER.backdrop);
+  const overlay = makeLayer(ORDER.overlay, { transparent: true });
+  const bgCtx = backdrop.c;
+  const ctx = overlay.c;
+
+  // The stone: a flattened grey sphere, lit from the front-left, with a blob shadow under it.
+  const stone = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 24, 16),
+    new THREE.MeshStandardMaterial({ color: 0x6c757d, roughness: 0.85, metalness: 0, depthTest: false, depthWrite: false })
+  );
+  stone.renderOrder = ORDER.stone;
+  stone.visible = false;
+  world.add(stone);
+  const stoneShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 24),
+    new THREE.MeshBasicMaterial({ color: 0x281908, transparent: true, opacity: 0.3, depthTest: false, depthWrite: false })
+  );
+  stoneShadow.renderOrder = ORDER.shadow;
+  stoneShadow.visible = false;
+  world.add(stoneShadow);
+
   let W = 0;
   let H = 0;
+  let dpr = 1;
   let L = null; // layout
+  let charRef = 1; // texture density: px per character unit at the nearest end of the court
+
+  // Character sprites, reused frame to frame: pool[0] is the hero, the rest are the waiting players.
+  const sprites = [];
+  function spriteAt(i) {
+    if (!sprites[i]) {
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(BOX_W * charRef * dpr);
+      cv.height = Math.round(BOX_H * charRef * dpr);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.center.set(BOX_FEET_X / BOX_W, 1 - BOX_FEET_Y / BOX_H);
+      world.add(sprite);
+      sprites[i] = { cv, tex, sprite, c: cv.getContext("2d") };
+    }
+    return sprites[i];
+  }
 
   function layout() {
     const courtBottom = H * 0.8;
@@ -25,6 +104,7 @@ export function createScene(canvas) {
     // Sized by height too, so a wide desktop window keeps the same proportions as a phone.
     const cellW = Math.min((W * 0.8) / COLS, H * 0.185);
     L = { courtBottom, courtTop, cellW, cx: W / 2, wallBottom: H * 0.27 };
+    charRef = L.cellW / 190;
   }
 
   // Court (x,y in cell units) to screen px.
@@ -42,15 +122,33 @@ export function createScene(canvas) {
   // Character px-per-unit at a court position (1 unit = 1% of a 100px child).
   const charScale = (y) => (L.cellW / 190) * project(0, y).scale;
 
-  function resize(cssW, cssH, dpr) {
+  function resize(cssW, cssH, ratio) {
     W = cssW;
     H = cssH;
-    canvas.width = bg.width = Math.round(W * dpr);
-    canvas.height = bg.height = Math.round(H * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    dpr = Math.min(ratio, 2);
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(W, H, false);
+    camera.left = 0;
+    camera.right = W;
+    camera.top = H;
+    camera.bottom = 0;
+    camera.updateProjectionMatrix();
+    for (const layer of [backdrop, overlay]) {
+      layer.cv.width = Math.round(W * dpr);
+      layer.cv.height = Math.round(H * dpr);
+      layer.c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      layer.mesh.scale.set(W, H, 1);
+      layer.mesh.position.set(W / 2, H / 2, 0);
+      layer.tex.dispose(); // re-create the GPU texture at the new size
+    }
     layout();
+    for (const s of sprites) {
+      s.cv.width = Math.round(BOX_W * charRef * dpr);
+      s.cv.height = Math.round(BOX_H * charRef * dpr);
+      s.tex.dispose();
+    }
     paintBackdrop(bgCtx);
+    backdrop.tex.needsUpdate = true;
   }
 
   function polyPath(c, pts) {
@@ -319,23 +417,6 @@ export function createScene(canvas) {
     ctx.fill();
   }
 
-  function drawStone(st) {
-    const p = project(st.x, st.y);
-    const r = L.cellW * 0.075 * p.scale;
-    const h = st.h ?? 0;
-    ctx.fillStyle = "rgba(40,25,10,0.3)";
-    ctx.beginPath();
-    ctx.ellipse(p.x + r * 0.2, p.y + r * 0.5, r * 1.1, r * 0.55, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#6c757d";
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y - h, r, r * 0.8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.beginPath();
-    ctx.ellipse(p.x - r * 0.3, p.y - h - r * 0.3, r * 0.35, r * 0.2, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
 
   // Slingshot band, and a dotted line to where the stone would land.
   function drawAim(aim, time) {
@@ -375,6 +456,41 @@ export function createScene(canvas) {
     ctx.stroke();
   }
 
+  // Screen px (y down) to scene units (y up).
+  const sy = (y) => H - y;
+
+  function placeStone(st) {
+    if (!st) {
+      stone.visible = stoneShadow.visible = false;
+      return;
+    }
+    const p = project(st.x, st.y);
+    const r = L.cellW * 0.075 * p.scale;
+    const h = st.h ?? 0;
+    stoneShadow.visible = true;
+    stoneShadow.position.set(p.x + r * 0.2, sy(p.y + r * 0.5), 0);
+    stoneShadow.scale.set(r * 1.1, r * 0.55, 1);
+    stone.visible = true;
+    stone.position.set(p.x, sy(p.y - h), 0);
+    stone.scale.set(r, r * 0.8, r);
+  }
+
+  // Draw a character into its sprite texture at the fixed reference density, then size the
+  // sprite for where it stands on the court.
+  function placeCharacter(i, order, who, x, y, cs, pose) {
+    const s = spriteAt(i);
+    const c = s.c;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, s.cv.width, s.cv.height);
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawCharacter(c, who, BOX_FEET_X * charRef, BOX_FEET_Y * charRef, charRef, pose);
+    s.tex.needsUpdate = true;
+    s.sprite.visible = true;
+    s.sprite.renderOrder = order;
+    s.sprite.position.set(x, sy(y), 0);
+    s.sprite.scale.set(BOX_W * cs, BOX_H * cs, 1);
+  }
+
   /**
    * view: {
    *   hint: square | "start" | null, stone: {x,y,h}|null, flash, aim,
@@ -382,30 +498,37 @@ export function createScene(canvas) {
    * }
    */
   function draw(view, time) {
-    ctx.drawImage(bg, 0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
     if (view.houses) drawHouses(view.houses);
     if (view.hint) drawHint(view.hint, time);
     if (view.mark) drawMark(view.mark, time);
     if (view.flash) drawFlash(view.flash, time);
-    if (view.stone) drawStone(view.stone);
     if (view.aim) drawAim(view.aim, time);
-    for (const w of view.waiting ?? []) {
+    overlay.tex.needsUpdate = true;
+
+    placeStone(view.stone);
+
+    const waiting = view.waiting ?? [];
+    waiting.forEach((w, i) => {
       const wp = project(w.x, w.y);
-      drawCharacter(ctx, w.style, wp.x, wp.y, charScale(0), {
+      placeCharacter(i + 1, ORDER.waiting, w.style, wp.x, wp.y, charScale(0), {
         back: true,
         bob: Math.sin(time / 500),
         ring: w.color,
         sash: w.sash ? w.color : null,
       });
-    }
+    });
+    for (let i = waiting.length + 1; i < sprites.length; i++) sprites[i].sprite.visible = false;
+
     const h = view.hero;
     const pos = project(h.x, h.y);
-    const cs = charScale(Math.max(0, h.y));
-    drawCharacter(ctx, h.style, pos.x, pos.y, cs, {
+    placeCharacter(0, ORDER.hero, h.style, pos.x, pos.y, charScale(Math.max(0, h.y)), {
       ...h.pose,
       ring: h.color,
       sash: h.sash ? h.color : null,
     });
+
+    renderer.render(world, camera);
   }
 
   return { resize, draw, project, unproject, hitSquare };

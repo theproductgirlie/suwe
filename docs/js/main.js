@@ -1,4 +1,3 @@
-import { createScene } from "./render/scene.js";
 import { DEFAULT_STYLE, normalizeStyle } from "./render/character.js";
 import { createDirector } from "./director.js";
 import { createSetup, levelStars } from "./setup.js";
@@ -28,7 +27,19 @@ import { onStartNg, signInUrl, watchPlayer, saveScore, loadLeaderboard, setTrans
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const canvas = $("stage");
-const scene = createScene(canvas);
+// Three.js renders the scene. `?renderer=2d` (or a device without WebGL) uses the original Canvas 2D one.
+const scene = await (async () => {
+  if (new URLSearchParams(location.search).get("renderer") !== "2d") {
+    try {
+      const { createScene } = await import("./render/scene.js");
+      return createScene(canvas);
+    } catch (err) {
+      console.warn("WebGL scene unavailable, using Canvas 2D:", err);
+    }
+  }
+  const { createScene } = await import("./render/scene-2d.js");
+  return createScene(canvas);
+})();
 
 // --- tiny safe storage ---------------------------------------------------------
 const store = {

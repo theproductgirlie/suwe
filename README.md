@@ -8,7 +8,8 @@ Frontend only: the playable game is the static site in `docs/`.
 - `docs/js/engine/` the rules engine: pure and deterministic (no screen code, no clock, no
   `Math.random`). `applyMove(state, move)` returns the new state and events. State is plain JSON, so
   matches save, resume and replay exactly. Includes the computer players (`ai.js`).
-- `docs/js/render/` Canvas 2D drawing: the compound, the court, the characters (from start.ng style fields).
+- `docs/js/render/` drawing. `scene.js` renders with three.js (vendored in `docs/js/vendor/`); `scene-2d.js` is the original Canvas 2D
+  renderer, kept as the fallback when WebGL is missing and for comparison (`?renderer=2d`). `character.js` draws the characters from start.ng style fields.
 - `docs/js/director.js` turns engine events into animation and sound.
 - `docs/js/audio.js` music and effects, synthesised with Web Audio (no audio files).
 - `docs/js/tutorial.js`, `setup.js`, `main.js` the How to Play slides, the "Who's playing?" screen, and the app.
