@@ -251,9 +251,10 @@ function layoutScene() {
     if (isDesktop()) {
       scene.setLayout({ nearY: H - 215, farY: 150, cx: W / 2, maxCell: Math.min(W * 0.2, H * 0.22), pitch: 52 }, { ground: true });
     } else {
+      // Fixed by the screen height, not by the instruction card (whose height changes from hop to hop),
+      // so the court never moves while you play.
       const top = $("hud").getBoundingClientRect().bottom + 26;
-      const bottom = $("move").getBoundingClientRect().top - 100;
-      scene.setLayout({ nearY: Math.max(bottom, top + 220), farY: top, cx: W / 2, maxCell: W * 0.4, pitch: 46 }, { ground: true });
+      scene.setLayout({ nearY: Math.max(H * 0.5, top + 230), farY: top, cx: W / 2, maxCell: W * 0.4, pitch: 30 }, { ground: true });
     }
   } else if (m === "menu") {
     if (isDesktop()) scene.setLayout({ nearY: H * 0.95, farY: H * 0.42, cx: W * 0.74, maxCell: H * 0.16, pitch: 44 }, { ground: false });
@@ -507,8 +508,10 @@ const MISS = {
   outside: ["Out of the court!", () => "Stay inside the chalk."],
 };
 let missShown = false;
+// Returns true when the card waits for the player to press OK (their own miss), false when it carries on by itself.
+let missAuto = false;
 function showMiss(e) {
-  if (skipping || !game) return;
+  if (skipping || !game) return false;
   const failed = actor ?? current();
   const failer = players().find((q) => q.id === failed.id) ?? failed; // the new state's copy
   const human = !failer.ai && (solo() || failer.id === players()[0].id);
@@ -533,14 +536,18 @@ function showMiss(e) {
   const next = game.over ? null : current();
   $("miss-ok-text").textContent = solo() ? "OK, throw again" : `OK, ${next && next.id !== failer.id ? `${next.name}'s turn` : "go on"}`;
   $("miss-art").replaceChildren(missArt());
+  // A person reads it and presses OK when ready. Only the computer's miss carries on by itself.
+  missAuto = !human;
+  $("miss-timer").hidden = human;
   $("miss").hidden = false;
   missShown = true;
-  updateMissTimer(0);
+  if (missAuto) updateMissTimer(4000);
+  $("miss-ok").focus({ preventScroll: true });
+  return human;
 }
 function updateMissTimer(left) {
-  $("miss-bar").style.width = `${Math.max(0, Math.min(1, left / 2000)) * 100}%`;
-  const sec = Math.max(0, Math.ceil(left / 1000));
-  $("miss-count").textContent = isDesktop() ? `Continues in ${sec || 2}s` : `Continues by itself in ${sec || 2}s`;
+  $("miss-bar").style.width = `${Math.max(0, Math.min(1, left / 4000)) * 100}%`;
+  $("miss-count").textContent = `Carries on in ${Math.max(1, Math.ceil(left / 1000))}s`;
 }
 function hideMiss() {
   if (!missShown) return;
@@ -1139,7 +1146,7 @@ function frame(t) {
     }
     if (!busy) scheduleAi();
     if (!$("meter").hidden && !busy) $("needle").style.left = `${50 + needle(t) * 50}%`;
-    if (missShown) updateMissTimer(director.gateLeft(animT));
+    if (missShown && missAuto) updateMissTimer(director.gateLeft(animT));
   }
   // "Tap here": a label on the glowing square, for the person whose turn it is.
   const showTip = game && document.body.dataset.mode === "play" && !paused && !busy && !current().ai && game.phase === "hop" && Number.isInteger(view.hint);

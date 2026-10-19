@@ -1065,9 +1065,11 @@ body:not([data-mode="play"]) #tip {
   border-radius: 99px;
   background: var(--soft);
 }
-#miss.run .countdown i {
-  width: 0;
-  transition: width 2s linear;
+#miss-timer {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* ---- pause: a sheet on the phone ---- */

@@ -19,6 +19,8 @@ const phase = () => ev("__suwe.game.phase");
 const target = () => ev("__suwe.game.players[0].target");
 const idle = async () => {
   for (let i = 0; i < 200; i++) {
+    // A person's missed card waits for OK, like a player would press it.
+    await ev(`(() => { const m = document.getElementById("miss"); if (m && !m.hidden) document.getElementById("miss-ok").click(); })()`);
     if (!(await ev("__suwe.busy"))) return;
     await sleep(50);
   }

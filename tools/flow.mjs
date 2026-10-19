@@ -43,6 +43,8 @@ const pick = async (ev, n) => {
 
 const idle = async (ev) => {
   for (let i = 0; i < 400; i++) {
+    // A person's missed card waits for OK, like a player would press it.
+    await ev(`(() => { const m = document.getElementById("miss"); if (m && !m.hidden) document.getElementById("miss-ok").click(); })()`);
     if (!(await ev("__suwe.busy"))) return;
     await sleep(50);
   }

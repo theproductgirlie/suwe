@@ -23,7 +23,7 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, onFail = () => {}, sfx = () => {} }) {
+export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, onFail = () => false, sfx = () => {} }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
@@ -239,8 +239,14 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, o
               pose.tilt = dir * 0.9 * easeOut(p);
             },
           });
-          // The "missed" card: it stays up for 2 seconds, or until the player says OK (release()).
-          queue.push({ dur: 2000, run() {}, gate: true, start: () => ((released = false), onFail(e)) });
+          // The "missed" card: onFail(e) says whether to wait for the player to press OK (a person's own
+          // miss, so they can read it) or to carry on by itself after a few seconds (the computer's).
+          const gate = { dur: 4000, run() {}, gate: true };
+          gate.start = () => {
+            released = false;
+            gate.dur = onFail(e) ? 1e9 : 4000;
+          };
+          queue.push(gate);
           break;
         }
         case "course_done":
