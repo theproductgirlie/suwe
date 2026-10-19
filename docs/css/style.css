@@ -931,3 +931,66 @@ tr.win td {
 #lb-table tr.me td {
   background: #fff3bf;
 }
+
+/* ---- pause menu: slides in from the right ---- */
+#pause-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(40, 25, 10, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+#pause-menu {
+  position: fixed;
+  z-index: 21;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: min(86vw, 340px);
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 10px;
+  padding: 84px 18px 24px;
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: -8px 0 28px rgba(40, 25, 10, 0.3);
+  transform: translateX(105%);
+  visibility: hidden;
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s 0.28s;
+}
+#pause-menu h2 {
+  margin: 0;
+  font-size: 34px;
+}
+#pause-menu .why {
+  margin: -6px 0 6px;
+}
+#pause-menu .big {
+  justify-content: center;
+}
+body.paused #pause-scrim {
+  opacity: 1;
+  pointer-events: auto;
+}
+body.paused #pause-menu {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s;
+}
+body:not([data-mode="play"]) #pause-menu,
+body:not([data-mode="play"]) #pause-scrim {
+  display: none;
+}
+/* the Menu button stays on top of the drawer, and turns into Close */
+#menu-btn,
+#sound-btn {
+  z-index: 30;
+}
+#menu-btn.on {
+  background: var(--ink);
+  color: #fff;
+}

@@ -89,6 +89,8 @@ const g = (path) => ev(`__suwe.game.${path}`);
 // Menu -> Play -> 2 players, both people -> Start.
 await ev(`document.getElementById('play').click()`);
 await sleep(200);
+await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('2')).click()`);
+await sleep(100);
 await ev(`document.querySelectorAll('.seat')[1].querySelector('.seg button').click()`); // seat 2: Person
 await ev(`document.querySelector('#setup .big').click()`);
 await sleep(500);

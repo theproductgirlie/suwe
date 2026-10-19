@@ -80,6 +80,9 @@ function renderAudioButtons() {
   set("opt-music", "Music", p.music);
   set("opt-sfx", "Sound effects", p.sfx);
   set("opt-voice", "Voice lines", p.voice);
+  set("pause-music", "Music", p.music);
+  set("pause-sfx", "Sound effects", p.sfx);
+  set("pause-voice", "Voice lines", p.voice);
   const quiet = !p.music && !p.sfx;
   $("sound-btn").textContent = quiet ? "Sound off" : "Sound on";
   $("sound-btn").classList.toggle("off", quiet);
@@ -361,12 +364,12 @@ const submit = (move) => commit(applyMove(game, move));
 // The computer takes its turn a moment after the picture has settled.
 let aiTimer = null;
 function scheduleAi() {
-  if (aiTimer || !game || game.over || director.busy || !current().ai) return;
+  if (aiTimer || paused || !game || game.over || director.busy || !current().ai) return;
   const id = matchId;
   const delay = ["throw", "ra_ile", "tiebreak"].includes(game.phase) ? 900 : 450;
   aiTimer = setTimeout(() => {
     aiTimer = null;
-    if (id !== matchId || !game || game.over || director.busy || !current().ai) return;
+    if (id !== matchId || paused || !game || game.over || director.busy || !current().ai) return;
     commit(playAiMove(game, current().ai));
   }, delay);
 }
@@ -374,7 +377,7 @@ function scheduleAi() {
 // --- input --------------------------------------------------------------------------------------
 const MIN_POWER = 0.12;
 let drag = null;
-const humanTurn = () => game && !game.over && !director.busy && !current().ai;
+const humanTurn = () => game && !paused && !game.over && !director.busy && !current().ai;
 
 function stonePx() {
   return scene.project(THROW_ORIGIN.x, THROW_ORIGIN.y);
@@ -498,6 +501,7 @@ function resumeMatch() {
   lastKey = "";
   elapsedBase = d.elapsed;
   matchStart = Date.now();
+  setPaused(false);
   director.reset();
   director.sync(game);
   mode("play");
@@ -655,6 +659,7 @@ function showResults(result) {
     ? ""
     : `You have no hearts left. Next one in ${fmt(msToNextLife(lives, Date.now()))}.`;
   clearSave();
+  setPaused(false);
   submitScore(g, result, elapsed);
   if (!result.tie) audio.speak("Winner");
   game = null;
@@ -722,15 +727,59 @@ function startMatch(cfg) {
   lastKey = "";
   matchStart = Date.now();
   elapsedBase = 0;
+  setPaused(false);
   director.reset();
   saveMatch();
   mode("play");
   startTurn();
 }
 
-$("menu-btn").addEventListener("click", () => {
-  if (!confirm("Pause this match? You can continue it from the menu.")) return;
+// --- pause menu ---------------------------------------------------------------------------------
+// The Menu button pauses the match and slides a menu in from the right. Pressing it
+// again (or Resume, or the dark area, or Esc) closes the menu and carries on.
+let paused = false;
+let pausedAt = 0;
+let pauseOffset = 0; // total time spent paused, to keep the animation clock honest
+
+function setPaused(on) {
+  if (on === paused) return;
+  if (on && (!game || game.over || document.body.dataset.mode !== "play")) return;
+  paused = on;
+  document.body.classList.toggle("paused", on);
+  $("pause-menu").setAttribute("aria-hidden", String(!on));
+  $("menu-btn").classList.toggle("on", on);
+  $("menu-btn").textContent = on ? "Close" : "Menu";
+  if (on) {
+    pausedAt = performance.now();
+    clearTimeout(aiTimer);
+    aiTimer = null;
+    drag = null;
+    view.aim = null;
+    saveMatch();
+  } else {
+    const away = performance.now() - pausedAt;
+    pauseOffset += away;
+    meterStart += away; // the balance needle carries on from where it was
+  }
+}
+
+$("menu-btn").addEventListener("click", () => setPaused(!paused));
+$("pause-scrim").addEventListener("click", () => setPaused(false));
+$("pause-resume").addEventListener("click", () => setPaused(false));
+addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.dataset.mode === "play") setPaused(!paused);
+});
+$("pause-music").addEventListener("click", () => $("opt-music").click());
+$("pause-sfx").addEventListener("click", () => $("opt-sfx").click());
+$("pause-voice").addEventListener("click", () => $("opt-voice").click());
+let howtoFromPause = false;
+$("pause-howto").addEventListener("click", () => {
+  howtoFromPause = true;
+  mode("howto");
+});
+$("pause-leave").addEventListener("click", () => {
   saveMatch();
+  setPaused(false);
   endMatchState();
   game = null;
   director.reset();
@@ -738,10 +787,21 @@ $("menu-btn").addEventListener("click", () => {
   mode("menu");
 });
 
+
 // --- menu, settings and how to play ---------------------------------------------------------------
 const tutorial = createTutorial($("howto"), {
-  onClose: () => mode("menu"),
+  onClose: () => {
+    if (howtoFromPause) {
+      howtoFromPause = false;
+      mode("play");
+    } else mode("menu");
+  },
   onTry: () => {
+    if (howtoFromPause) {
+      howtoFromPause = false;
+      mode("play"); // back to the paused match
+      return;
+    }
     store.set("suwe.seenTutorial", true);
     if (needsSignIn()) location.href = signInUrl();
     else {
@@ -783,7 +843,8 @@ $("discard-save").addEventListener("click", () => {
 // --- frame loop ---------------------------------------------------------------------------------------
 let wasBusy = false;
 function frame(t) {
-  director.update(t);
+  // While paused the animation clock stands still, so nothing jumps ahead on resume.
+  if (!paused) director.update(t - pauseOffset);
   const busy = director.busy;
   if (game) {
     if (wasBusy && !busy) {
@@ -818,6 +879,9 @@ if (params.has("debug") && !onStartNg()) {
     px: (x, y) => scene.project(x, y),
     zone: () => (game.phase === "throw" ? 1 : expectation(game).zone),
     spendLife,
+    get view() {
+      return view;
+    },
     audio,
     setTransport,
     get saved() {

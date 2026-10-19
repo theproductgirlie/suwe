@@ -25,7 +25,7 @@ function el(tag, cls, text) {
  * @param {{ getMe: () => {name:string, style:object|null, signedIn:boolean}, onStart: (cfg) => void, onBack: () => void, say?: (t:string) => void }} opts
  */
 export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
-  let count = 2;
+  let count = 1;
   let seats = [];
 
   // Characters a seat can wear: the start.ng player first, then stock kids.
@@ -126,7 +126,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     root.append(list);
 
     root.append(el("p", "ready", readyText()));
-    const go = el("button", "big go", count === 1 ? "Start practice" : "Start match");
+    const go = el("button", "big go", "Start match");
     go.type = "button";
     go.onclick = start;
     root.append(go);
@@ -262,7 +262,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     // opts.count: open with this many players (the tutorial's "Try it now" opens solo practice).
     show(opts = {}) {
       seats = [];
-      if (opts.count) count = opts.count;
+      count = opts.count ?? 1; // always opens as a solo player unless asked otherwise
       render();
     },
   };
