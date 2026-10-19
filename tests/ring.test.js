@@ -1,59 +1,59 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ringPosition, ringSpeed, spread, throwToward } from "../docs/js/ring.js";
-import { resolveThrow, THROW_ORIGIN, TIE_MARK } from "../docs/js/engine/game.js";
+import { SWAY, swayAmplitude, swayAngle, aimFromPull, keyboardAim, landing, throwToward } from "../docs/js/ring.js";
+import { THROW_ORIGIN } from "../docs/js/engine/game.js";
 import { squareCenter, cellToSquare, COLS, ROWS } from "../docs/js/engine/court.js";
 
 const squareAt = (p) => (p.x >= 0 && p.x < COLS && p.y >= 0 && p.y < ROWS ? cellToSquare(Math.floor(p.x), Math.floor(p.y)) : null);
+const deg = (r) => (r * 180) / Math.PI;
 
-test("the red mark circles the square you aim at, so it crosses that square on every turn", () => {
-  for (const target of [1, 2, 5, 9, 12]) {
-    const c = squareCenter(target);
-    let inside = 0;
-    let outside = 0;
-    for (let t = 0; t < 8; t += 0.02) {
-      const p = ringPosition(t, { target });
-      assert.ok(Math.hypot(p.x - c.x, p.y - c.y) < 0.63, "it never wanders off the target");
-      if (squareAt(p) === target) inside++;
-      else outside++;
-    }
-    assert.ok(inside > 0 && outside > 0, `square ${target}: sometimes on it, sometimes off it`);
+test("the sway is 6, 10 and 14 degrees on Easy, Medium and Hard, and 30% more on squares 7 to 12", () => {
+  assert.equal(swayAmplitude("easy", 3), 6);
+  assert.equal(swayAmplitude("medium", 3), 10);
+  assert.equal(swayAmplitude("hard", 3), 14);
+  assert.ok(Math.abs(swayAmplitude("medium", 7) - 13) < 1e-9);
+  assert.ok(Math.abs(swayAmplitude("hard", 12) - 18.2) < 1e-9);
+  assert.equal(swayAmplitude(null, 3), 10, "a match between people is a medium one");
+});
+
+test("the aim swings left and right as a sine wave at 0.5, 0.8 and 1.2 swings a second", () => {
+  assert.equal(swayAngle(0, "medium", 3), 0, "it starts in the middle");
+  for (const [level, s] of Object.entries(SWAY)) {
+    const peak = swayAngle(1 / (4 * s.hz), level, 3); // a quarter of a swing
+    assert.ok(Math.abs(deg(peak) - s.deg) < 1e-6, `${level} peaks at ${s.deg} degrees`);
+    assert.ok(Math.abs(swayAngle(1 / s.hz, level, 3)) < 1e-9, `${level} is back in the middle after one swing`);
+    assert.ok(swayAngle(3 / (4 * s.hz), level, 3) < 0, `${level} swings to the other side`);
   }
 });
 
-test("it goes round slowly, a little faster for higher squares and a lot faster on Hard", () => {
-  assert.ok(ringSpeed(1, "medium") < 3.5, "slow enough to time");
-  assert.ok(ringSpeed(10, "medium") > ringSpeed(1, "medium"));
-  assert.ok(ringSpeed(5, "hard") > ringSpeed(5, "medium") * 1.3);
-  assert.ok(ringSpeed(5, "easy") < ringSpeed(5, "medium"));
-  assert.equal(ringSpeed(5, null), ringSpeed(5, "medium"), "a match between people is a medium one");
+test("pulling back sets the aim: the other way from the pull, as far as the pull is long", () => {
+  const stone = { x: 200, y: 600 };
+  const straight = aimFromPull(stone, { x: 200, y: 700 }, 200);
+  assert.ok(Math.abs(straight.angle) < 1e-9 && Math.abs(straight.power - 0.5) < 1e-9);
+  const toLeft = aimFromPull(stone, { x: 260, y: 700 }, 200); // finger to the right, aims left
+  assert.ok(toLeft.angle < 0);
+  assert.ok(aimFromPull(stone, { x: 200, y: 800 }, 200).power > straight.power, "a longer pull goes further");
+  assert.equal(aimFromPull(stone, { x: 200, y: 560 }, 200), null, "a push forwards is not a pull");
+  assert.equal(aimFromPull(stone, { x: 200, y: 1200 }, 200).power, 1, "power stops at 1");
 });
 
-test("the random miss is small, and bigger on higher squares and on Hard", () => {
-  assert.ok(spread({ target: 12 }) > spread({ target: 1 }));
-  assert.ok(spread({ target: 6, level: "hard" }) > spread({ target: 6, level: "medium" }));
-  assert.ok(spread({ target: 12, level: "hard" }) < 0.35);
+test("holding Space aims at the target square and the pull sweeps from short to long", () => {
+  const a = keyboardAim(0, 4);
+  const c = squareCenter(4);
+  assert.ok(Math.abs(Math.atan2(c.x - THROW_ORIGIN.x, c.y - THROW_ORIGIN.y) - a.angle) < 1e-9);
+  const powers = [];
+  for (let t = 0; t < 2.4; t += 0.05) powers.push(keyboardAim(t, 4).power);
+  assert.ok(Math.min(...powers) <= 0.25 && Math.max(...powers) >= 0.95, "it sweeps through every distance");
 });
 
-test("Ra Ile's mark goes round the whole court and the tie-break's goes round the red mark", () => {
-  const seen = new Set();
-  for (let t = 0; t < 10; t += 0.02) {
-    const sq = squareAt(ringPosition(t, { phase: "ra_ile" }));
-    if (sq) seen.add(sq);
-  }
-  assert.ok(seen.size >= 8, `it passes over many squares (${seen.size})`);
-  for (let t = 0; t < 5; t += 0.1) {
-    const p = ringPosition(t, { phase: "tiebreak" });
-    assert.ok(Math.hypot(p.x - TIE_MARK.x, (p.y - TIE_MARK.y) * (1.1 / 0.9)) < 1.12, "it stays around the mark");
-  }
-});
-
-test("a place on the court becomes an angle and power that land there", () => {
+test("with no sway a place on the court lands in that square, and the sway moves the landing sideways", () => {
   for (let n = 1; n <= 12; n++) {
     const c = squareCenter(n);
-    const land = resolveThrow(throwToward(c.x, c.y));
-    assert.ok(Math.hypot(land.x - c.x, land.y - c.y) < 1e-3, `square ${n} lands in the middle`);
-    assert.equal(squareAt(land), n);
+    const land = landing(throwToward(c.x, c.y));
+    assert.equal(squareAt(land), n, `square ${n}`);
   }
-  assert.ok(throwToward(THROW_ORIGIN.x, 30).power <= 1, "power never goes past 1");
+  const aim = throwToward(0.5, 5.5);
+  const left = landing(aim, -swayAmplitude("hard", 6) * Math.PI / 180);
+  const right = landing(aim, swayAmplitude("hard", 6) * Math.PI / 180);
+  assert.ok(right.x - left.x > 1, "on Hard the swing sweeps the landing across more than a square on far squares");
 });

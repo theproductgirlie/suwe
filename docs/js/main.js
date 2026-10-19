@@ -1,6 +1,7 @@
 import { DEFAULT_STYLE, normalizeStyle, drawCharacter } from "./render/character.js";
 import { icon, paintIcons, hearts, el } from "./ui.js";
-import { COLS, ROWS, squareCenter, cellToSquare } from "./engine/court.js";
+import { readTheme } from "./theme.js";
+import { COLS } from "./engine/court.js";
 import { createDirector } from "./director.js";
 import { createSetup, levelStars } from "./setup.js";
 import { createAudio } from "./audio.js";
@@ -13,7 +14,8 @@ import {
   THROW_ORIGIN,
 } from "./engine/game.js";
 import { playAiMove } from "./engine/ai.js";
-import { ringPosition, spread, throwToward } from "./ring.js";
+import { swayAngle, swayAmplitude, aimFromPull, keyboardAim, landing, throwMove, throwToward } from "./ring.js";
+import { TIE_MARK } from "./engine/game.js";
 import {
   MAX_LIVES,
   freshLives,
@@ -282,7 +284,7 @@ document.fonts?.load('800 40px "Baloo 2"').then(fit, () => {});
 function menuStage() {
   director.reset();
   view.hero.style = normalizeStyle(me.style);
-  view.hero.color = null;
+  view.hero.color = readTheme().p1;
   view.hero.sash = false;
   view.hero.x = COLS + 0.95;
   view.hero.y = 1.5;
@@ -340,16 +342,16 @@ function setBar(ico, title, sub, withSpace) {
   const small = $("bar-sub");
   small.replaceChildren(document.createTextNode(sub));
   if (withSpace && isDesktop()) {
-    small.replaceChildren(document.createTextNode("Hold the stone or "), el("kbd", "", "Space"), document.createTextNode(". The red mark spins."));
+    small.replaceChildren(document.createTextNode("Drag back from the stone, or hold "), el("kbd", "", "Space"), document.createTextNode(". The aim sways, so time it."));
   }
 }
 
 function barInfo(e) {
   const p = current();
   const tap = isDesktop() ? "Click" : "Tap";
-  if (e.kind === "throw") return { ico: "target", title: `Throw at square ${e.target}`, sub: isDesktop() ? "Hold the stone or Space, then let go" : "Hold the stone, then let go" };
-  if (e.kind === "backthrow") return { ico: "target", title: "Throw over your shoulder", sub: "Hold the stone, let go on an empty square" };
-  if (e.kind === "tiebreak") return { ico: "target", title: "Closest to the red mark", sub: "Hold the stone, let go near the mark" };
+  if (e.kind === "throw") return { ico: "target", title: `Throw at square ${e.target}`, sub: isDesktop() ? "Drag back from the stone, or hold Space" : "Pull the stone back, then let go" };
+  if (e.kind === "backthrow") return { ico: "target", title: "Throw over your shoulder", sub: "Pull back, let go on an empty square" };
+  if (e.kind === "tiebreak") return { ico: "target", title: "Closest to the red mark", sub: "Pull back, let go near the mark" };
   if (e.kind === "pickup") return { ico: "hand", title: "Pick up the stone", sub: "Press Pick up with the needle in the green" };
   if (e.to === "start") return { ico: "up", title: `${tap} HOME`, sub: "Hop home to finish the course" };
   return {
@@ -393,7 +395,7 @@ function renderBoard() {
       info.append(el("div", "pname", i0(p) === 0 && !p.ai && !solo() ? "You" : p.name));
       const stats = el("div", "pstats");
       const done = Math.max(0, Math.min(12, p.target - 1));
-      stats.append(icon("heart", 15), document.createTextNode(many ? `${p.lives} · ${done}/12` : `${p.lives} · ${done} of 12`));
+      stats.append(icon("heart", 15), document.createTextNode(many ? `${p.lives} · ${done}/12` : isDesktop() && done > 0 ? `${p.lives} · square ${done} of 12` : `${p.lives} · ${done} of 12`));
       info.append(stats);
       card.append(face, info);
       return card;
@@ -445,7 +447,7 @@ function showTurnCard() {
   $("turncard-kicker").textContent = mine ? "Your turn" : `${p.name}'s turn`;
   const info = barInfo(e);
   $("turncard-title").textContent = info.title;
-  $("turncard-sub").textContent = e.kind === "throw" ? (isDesktop() ? "Hold the stone or Space, then let go." : "Hold the stone, then let go.") : info.sub;
+  $("turncard-sub").textContent = e.kind === "throw" ? "Drag the stone back, then let go." : info.sub;
   $("turncard").hidden = false;
   turnCardStart = performance.now();
   turnCardTimer = setTimeout(hideTurnCard, 2000);
@@ -591,7 +593,7 @@ $("speed-btn").addEventListener("click", () => {
   $("speed-btn").classList.toggle("on", fast);
 });
 
-// --- input: press and hold the stone; a ring moves along the squares; let go to throw ----------
+// --- input: pull the stone back (or hold Space) and let go; the aim sways while you hold -------
 const humanTurn = () => game && !paused && !game.over && !director.busy && !current().ai && !pillShown;
 
 function stonePx() {
@@ -600,39 +602,47 @@ function stonePx() {
 
 // Each throwing phase works the same way; only the kind of move differs.
 const THROW_MOVE = { throw: "throw", ra_ile: "backthrow", tiebreak: "tiebreak" };
+const MIN_POWER = 0.12;
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-// The ring and the small random miss (see ring.js). `level` is the computer's level in this match.
+// The computer's level in this match (a match between people is a medium one), and the square
+// the sway is measured for (squares 7 to 12 sway 30% further; Ra Ile and the tie-break are far).
 const matchLevel = () => game?.players.find((q) => q.ai)?.ai ?? null;
-const ringOpts = () => ({ phase: game.phase === "ra_ile" ? "ra_ile" : game.phase, target: current().target, level: matchLevel() });
-const ringAt = (sec) => ringPosition(sec, ringOpts());
+const swayTarget = () => (game.phase === "throw" ? current().target : 12);
 
-let holdState = null; // { t0, id } while the stone is held (id: a pointer id, or "key")
-let ringOverride = null; // tests can pin the ring to a place (no random miss then)
+let holdState = null; // { t0, id, finger } while the stone is held (id: a pointer id, or "key")
+let ringOverride = null; // tests can pin the landing to a place on the court (no sway then)
 
-function startHold(id) {
+function startHold(id, finger = null) {
   if (holdState || !humanTurn() || !THROW_MOVE[game.phase]) return false;
   hideTurnCard();
-  holdState = { t0: performance.now(), id };
+  holdState = { t0: performance.now(), id, finger };
   return true;
 }
-function currentRing() {
-  return ringOverride ?? ringAt((performance.now() - holdState.t0) / 1000);
+const holdSeconds = () => (performance.now() - holdState.t0) / 1000;
+
+// What the player is aiming at right now: from the drag, or from the Space pull.
+function currentAim() {
+  if (holdState.id === "key") {
+    const at = game.phase === "throw" ? current().target : game.phase === "tiebreak" ? TIE_MARK : { x: 1, y: 3 };
+    return keyboardAim(holdSeconds(), at);
+  }
+  if (!holdState.finger) return null;
+  return aimFromPull(stonePx(), holdState.finger, window.innerHeight * 0.22);
 }
+
 function endHold(cancel) {
   if (!holdState) return;
-  const pos = currentRing();
+  const sec = holdSeconds();
+  const aim = ringOverride ? null : currentAim();
   holdState = null;
   view.hold = null;
   updateBar();
   if (cancel || !humanTurn()) return;
-  let land = pos;
-  if (!ringOverride) {
-    const a = Math.random() * Math.PI * 2;
-    const r = spread(ringOpts()) * Math.sqrt(Math.random());
-    land = { x: pos.x + Math.cos(a) * r, y: pos.y + Math.sin(a) * r };
-  }
-  submit({ type: THROW_MOVE[game.phase], ...throwToward(land.x, land.y) });
+  const type = THROW_MOVE[game.phase];
+  if (ringOverride) return submit({ type, ...throwToward(ringOverride.x, ringOverride.y) });
+  if (!aim || aim.power < MIN_POWER) return; // not pulled back: nothing thrown
+  // The stone flies to where the red landing circle is at this very moment.
+  submit({ type, ...throwMove(aim, swayAngle(sec, matchLevel(), swayTarget())) });
 }
 
 canvas.addEventListener("pointerdown", (e) => {
@@ -641,13 +651,16 @@ canvas.addEventListener("pointerdown", (e) => {
     const s = stonePx();
     // The stone's touch area is at least 64 x 64 px (here a 60 px radius), clear of every other control.
     if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 60) return;
-    if (startHold(e.pointerId)) canvas.setPointerCapture(e.pointerId);
+    if (startHold(e.pointerId, { x: e.clientX, y: e.clientY })) canvas.setPointerCapture(e.pointerId);
   } else if (game.phase === "hop") {
     // Any tap is a hop. The wrong square, the stone's square, someone's house or
     // somewhere off the court all count as a miss, whether meant or not.
     const sq = scene.hitSquare(e.clientX, e.clientY) ?? "out";
     submit({ type: "hop", square: sq, timing: needle(performance.now()) });
   }
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (holdState?.id === e.pointerId) holdState.finger = { x: e.clientX, y: e.clientY };
 });
 canvas.addEventListener("pointerup", (e) => {
   if (holdState?.id === e.pointerId) endHold(false);
@@ -811,7 +824,7 @@ async function showLeaderboard() {
   const all = reply.entries ?? [];
   const entries = all.filter((e) => (e.stats?.level ?? 2) === lbLevel);
   if (!entries.length) {
-    status.textContent = `Beat Tunde on ${LB_NAME[lbLevel]} to take the top spot.`;
+    status.textContent = isDesktop() ? "Beat Tunde on Medium or Hard to take the top spot." : `Beat Tunde on ${LB_NAME[lbLevel]} to take the top spot.`;
     document.querySelector(".lb-cta").hidden = false;
     fillPlaceholders(list);
     return;
@@ -1145,15 +1158,23 @@ function frame(t) {
     }
     if (!busy) scheduleAi();
     if (!$("meter").hidden && !busy) $("needle").style.left = `${50 + needle(t) * 50}%`;
-    // The ring while the stone is held, and the bar that follows it.
+    // While the stone is held: the band, the arc and the red landing circle, swaying.
     if (holdState && humanTurn()) {
-      const ring = currentRing();
-      const sec = (performance.now() - holdState.t0) / 1000;
-      view.hold = { origin: THROW_ORIGIN, ring, trail: [ringAt(Math.max(0, sec - 0.12)), ringAt(Math.max(0, sec - 0.24)), ringAt(Math.max(0, sec - 0.36))], around: game.phase === "throw" ? squareCenter(current().target) : null };
+      const sec = holdSeconds();
+      const aim = ringOverride ? throwToward(ringOverride.x, ringOverride.y) : currentAim();
+      const level = matchLevel();
+      const sway = ringOverride ? 0 : swayAngle(sec, level, swayTarget());
+      const amp = (swayAmplitude(level, swayTarget()) * Math.PI) / 180;
+      view.hold = {
+        origin: THROW_ORIGIN,
+        finger: holdState.id === "key" ? null : holdState.finger,
+        land: aim ? landing(aim, sway) : null,
+        ghosts: aim && !ringOverride ? [landing(aim, -amp), landing(aim, amp)] : [],
+      };
       if (lastBarSquare !== "held") {
         lastBarSquare = "held";
         const t = current().target;
-        setBar("target", game.phase === "throw" ? `Let go on square ${t}` : game.phase === "tiebreak" ? "Let go near the mark" : "Let go on an empty square", "Hold the stone. The red mark spins.", true);
+        setBar("target", game.phase === "throw" ? `Let go on square ${t}` : game.phase === "tiebreak" ? "Let go near the mark" : "Let go on an empty square", "Pull back to aim. The aim sways, so time it.", true);
       }
     } else if (view.hold) {
       view.hold = null;

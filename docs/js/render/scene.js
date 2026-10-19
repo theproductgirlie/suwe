@@ -222,13 +222,20 @@ function figure(style, theme) {
   shadow.renderOrder = 6;
   mats.push(shadow.material);
   root.add(shadow);
+  // The ring under the feet, in the player's colour: filled at 30% with a thin outline.
   const ringMat = new THREE.MeshBasicMaterial({ color: theme.chalk, side: THREE.DoubleSide, depthWrite: false });
-  mats.push(ringMat);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 28), ringMat);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.016;
-  ring.scale.set(0.27, 0.27 * 0.8, 1);
-  ring.renderOrder = 7;
+  const ringFillMat = new THREE.MeshBasicMaterial({ color: theme.chalk, transparent: true, opacity: 0.3, depthWrite: false });
+  mats.push(ringMat, ringFillMat);
+  const ring = new THREE.Group();
+  const ringLine = new THREE.Mesh(new THREE.RingGeometry(0.945, 1, 40), ringMat);
+  const ringFill = new THREE.Mesh(new THREE.CircleGeometry(0.945, 40), ringFillMat);
+  ringLine.rotation.x = ringFill.rotation.x = -Math.PI / 2;
+  ringLine.position.y = 0.0165;
+  ringFill.position.y = 0.0155;
+  ringLine.renderOrder = 8;
+  ringFill.renderOrder = 7;
+  ring.add(ringFill, ringLine);
+  ring.scale.set(0.27, 1, 0.27 * 0.8);
   root.add(ring);
 
   // pose as in the 2D version: {back, facing, bob, lift, oneLeg, shadow, bend, tilt, hold}
@@ -281,7 +288,10 @@ function figure(style, theme) {
 
     const ringColor = spec.ring ?? null;
     ring.visible = !!ringColor;
-    if (ringColor) ringMat.color.set(ringColor);
+    if (ringColor) {
+      ringMat.color.set(ringColor);
+      ringFillMat.color.set(ringColor);
+    }
   }
   apply();
 
@@ -740,70 +750,107 @@ export function createScene(canvas) {
     return null;
   }
 
-  // While a throw is held: a dotted arc to the red mark, and the mark itself, going round the
-  // square you are aiming at (drawn flat on the screen, over the court).
+  // While the stone is held: a halo on the stone, the red glowing band to the finger, faint arcs at the
+  // two ends of the sway, the red dotted arc to the red landing circle, and the circle itself.
+  function arcPoints(from, to, n = 24) {
+    const lift = Math.min(160, 40 + Math.hypot(to.x - from.x, to.y - from.y) * 0.45);
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      pts.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t - Math.sin(Math.PI * t) * lift });
+    }
+    return pts;
+  }
   function drawHold(h, time) {
     const c = octx;
     const from = project(h.origin.x, h.origin.y);
-    const r0 = project(h.ring.x, h.ring.y);
-    const rx = r0.scale * 0.3;
-
-    // The faint path the mark goes round, and a short trail behind it.
-    if (h.around) {
-      c.strokeStyle = css(theme.chalk, 0.4);
-      c.lineWidth = 2;
-      c.setLineDash([3, 8]);
-      c.beginPath();
-      for (let i = 0; i <= 48; i++) {
-        const a = (i / 48) * Math.PI * 2;
-        const q = project(h.around.x + 0.62 * Math.cos(a), h.around.y + 0.62 * Math.sin(a));
-        if (i) c.lineTo(q.x, q.y);
-        else c.moveTo(q.x, q.y);
-      }
-      c.stroke();
-      c.setLineDash([]);
-    }
-    (h.trail ?? []).forEach((p, i) => {
-      const q = project(p.x, p.y);
-      c.fillStyle = css(theme.danger, 0.28 - i * 0.08);
-      c.beginPath();
-      c.ellipse(q.x, q.y, rx * (0.7 - i * 0.14), rx * (0.7 - i * 0.14) * 0.6, 0, 0, Math.PI * 2);
-      c.fill();
-    });
-
-    // The arc the stone will fly: a parabola from the stone to the mark.
-    const lift = Math.min(150, 40 + Math.hypot(r0.x - from.x, r0.y - from.y) * 0.45);
-    c.setLineDash([2, 10]);
     c.lineCap = "round";
-    c.strokeStyle = css(theme.chalk, 0.95);
+    c.lineJoin = "round";
+
+    // The stone's halo (its touch area is at least 64 px wide).
+    c.strokeStyle = "rgba(255,255,255,0.95)";
     c.lineWidth = 4;
     c.beginPath();
-    for (let i = 0; i <= 24; i++) {
-      const t = i / 24;
-      const x = from.x + (r0.x - from.x) * t;
-      const y = from.y + (r0.y - from.y) * t - Math.sin(Math.PI * t) * lift;
-      if (i) c.lineTo(x, y);
-      else c.moveTo(x, y);
-    }
+    c.arc(from.x, from.y - 4, 28, 0, Math.PI * 2);
     c.stroke();
+    c.strokeStyle = "rgba(255,255,255,0.35)";
+    c.lineWidth = 12;
+    c.beginPath();
+    c.arc(from.x, from.y - 4, 34, 0, Math.PI * 2);
+    c.stroke();
+
+    // The two ends of the sway, faintly.
+    for (const g of h.ghosts ?? []) {
+      const to = project(g.x, g.y);
+      c.setLineDash([2, 10]);
+      c.strokeStyle = css(theme.chalk, 0.5);
+      c.lineWidth = 3;
+      c.beginPath();
+      arcPoints(from, to).forEach((p, i) => (i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)));
+      c.stroke();
+    }
     c.setLineDash([]);
 
-    // The red mark: a ring with a cross, like the one that showed where the stone would land.
-    const pulse = 1 + 0.06 * Math.sin(time / 110);
-    const ry = rx * pulse * 0.6;
-    c.fillStyle = css(theme.danger, 0.2);
-    c.beginPath();
-    c.ellipse(r0.x, r0.y, rx * pulse, ry, 0, 0, Math.PI * 2);
-    c.fill();
+    // The elastic band: a red glowing band from the stone to the finger.
+    if (h.finger) {
+      c.save();
+      c.shadowColor = theme.danger;
+      c.shadowBlur = 16;
+      c.strokeStyle = theme.danger;
+      c.lineWidth = 7;
+      c.beginPath();
+      c.moveTo(from.x - 11, from.y - 6);
+      c.lineTo(h.finger.x, h.finger.y);
+      c.moveTo(from.x + 11, from.y - 6);
+      c.lineTo(h.finger.x, h.finger.y);
+      c.stroke();
+      c.restore();
+      c.fillStyle = "#fff";
+      c.beginPath();
+      c.arc(h.finger.x, h.finger.y, 16, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = "rgba(255,255,255,0.5)";
+      c.lineWidth = 4;
+      c.beginPath();
+      c.arc(h.finger.x, h.finger.y, 30, 0, Math.PI * 2);
+      c.stroke();
+    }
+
+    if (!h.land) return;
+    const to = project(h.land.x, h.land.y);
+
+    // The red glowing dotted arc to the landing circle.
+    c.save();
+    c.shadowColor = theme.danger;
+    c.shadowBlur = 14;
+    c.setLineDash([2, 12]);
     c.strokeStyle = theme.danger;
-    c.lineWidth = 5;
-    c.stroke();
+    c.lineWidth = 6;
     c.beginPath();
-    c.moveTo(r0.x - rx * 0.55, r0.y);
-    c.lineTo(r0.x + rx * 0.55, r0.y);
-    c.moveTo(r0.x, r0.y - ry * 0.7);
-    c.lineTo(r0.x, r0.y + ry * 0.7);
+    arcPoints(from, to).forEach((p, i) => (i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)));
     c.stroke();
+    c.restore();
+
+    // The red landing circle.
+    const rx = to.scale * 0.17 * (1 + 0.05 * Math.sin(time / 120));
+    const ry = rx * 0.78;
+    c.save();
+    c.shadowColor = theme.danger;
+    c.shadowBlur = 18;
+    c.fillStyle = theme.danger;
+    c.beginPath();
+    c.ellipse(to.x, to.y, rx, ry, 0, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    c.strokeStyle = "#fff";
+    c.lineWidth = 4;
+    c.beginPath();
+    c.ellipse(to.x, to.y, rx, ry, 0, 0, Math.PI * 2);
+    c.stroke();
+    c.fillStyle = "#fff";
+    c.beginPath();
+    c.arc(to.x, to.y, 4, 0, Math.PI * 2);
+    c.fill();
   }
 
   /**

@@ -122,10 +122,15 @@ export function drawCharacter(ctx, style, x, y, scale, pose = {}) {
 
   if (shadow) ellipse(ctx, 0, 1, 22 - lift * 0.15, 6, "rgba(40,25,10,0.28)");
   if (ring) {
-    ctx.strokeStyle = ring;
-    ctx.lineWidth = 3.5;
+    // The ring under the feet: the player's colour, filled at 30% with a thin outline.
+    ctx.fillStyle = ring;
+    ctx.globalAlpha = 0.3;
     ctx.beginPath();
     ctx.ellipse(0, 1, 27, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = ring;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
   }
 

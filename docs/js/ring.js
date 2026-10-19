@@ -1,40 +1,63 @@
-// The throw: press and hold the stone, a red mark circles the square you are aiming at, let go and
-// the stone flies where the mark was (plus a small miss). Pure functions: the screen and the random numbers stay
-// in main.js, so the pace and the miss can be tested.
+// The throw: pull the stone back (a finger or mouse drag, or hold Space) and let go. The aim sways
+// left and right by itself while you hold, so you time the release; the stone flies to where the
+// red landing circle was at that moment. Pure functions: the screen and the clock stay in main.js.
 
 import { squareCenter } from "./engine/court.js";
-import { THROW_ORIGIN, TIE_MARK, MAX_ANGLE, MAX_RANGE } from "./engine/game.js";
+import { THROW_ORIGIN, MAX_ANGLE, MAX_RANGE, resolveThrow } from "./engine/game.js";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-// How hard the match is: the computer's level (a match with people is a medium one).
-export const LEVEL_FACTOR = { easy: 0.85, medium: 1, hard: 1.35 };
-export const levelFactor = (level) => LEVEL_FACTOR[level] ?? 1;
+// How far the aim sways (degrees each way) and how fast (swings per second), by the computer's level.
+// A match between people is a medium one. Squares 7 to 12 sway 30% further.
+export const SWAY = {
+  easy: { deg: 6, hz: 0.5 },
+  medium: { deg: 10, hz: 0.8 },
+  hard: { deg: 14, hz: 1.2 },
+};
+const swayOf = (level) => SWAY[level] ?? SWAY.medium;
 
-// How fast the red mark goes round (radians per second): slow and steady, a little quicker for
-// higher target squares and a lot quicker on Hard.
-export const ringSpeed = (target, level) => (2.3 + 0.12 * target) * levelFactor(level);
-
-// Where the red mark is `sec` seconds after the stone was pressed. It circles the square you are
-// aiming at, crossing it and the squares around it, so you let go when it is on the square.
-// For Ra Ile (any empty square) it circles the whole court; for the tie-break it circles the red mark.
-export function ringPosition(sec, { phase = "throw", target = 1, level = null } = {}) {
-  const f = levelFactor(level);
-  const w = phase === "throw" ? ringSpeed(target, level) : 2.2 * f;
-  const a = sec * w - Math.PI / 2; // starts at the top of the circle
-  if (phase === "tiebreak") return { x: TIE_MARK.x + 1.1 * Math.cos(a), y: TIE_MARK.y + 0.9 * Math.sin(a) };
-  if (phase === "ra_ile") return { x: 1 + 0.95 * Math.cos(a), y: 3 + 2.6 * Math.sin(a) };
-  const c = squareCenter(target);
-  return { x: c.x + 0.62 * Math.cos(a), y: c.y + 0.62 * Math.sin(a) };
+export function swayAmplitude(level, target) {
+  return swayOf(level).deg * (target >= 7 ? 1.3 : 1); // degrees
 }
 
-// The radius (in cells) of the small random miss: bigger on higher squares and on Hard.
-export function spread({ phase = "throw", target = 1, level = null } = {}) {
-  const base = phase === "tiebreak" ? 0.12 : 0.04 + 0.01 * target;
-  return base * levelFactor(level);
+// The sway (radians) `sec` seconds after the stone was pressed: a sine wave.
+export function swayAngle(sec, level, target) {
+  return ((swayAmplitude(level, target) * Math.PI) / 180) * Math.sin(2 * Math.PI * swayOf(level).hz * sec);
 }
 
-// A place on the court to the move the engine understands (an angle and a power from the throwing spot).
+// A drag becomes an aim: the pull from the stone to the finger, the other way, is the direction;
+// the length is the distance. Returns null while the finger is not pulled back (down the screen).
+export function aimFromPull(stone, finger, maxDrag) {
+  const dirX = stone.x - finger.x;
+  const dirY = finger.y - stone.y;
+  if (dirY <= 4) return null;
+  return {
+    angle: clamp(Math.atan2(dirX, dirY), -MAX_ANGLE, MAX_ANGLE),
+    power: Math.min(1, Math.hypot(dirX, dirY) / maxDrag),
+  };
+}
+
+// Holding Space instead: the pull grows and shrinks steadily (a sweep takes 2.4 s) and the aim points
+// at the square you are throwing at, so one key is enough.
+export function keyboardAim(sec, at) {
+  const c = typeof at === "number" ? squareCenter(at) : at; // a square number, or a place on the court
+  const dx = c.x - THROW_ORIGIN.x;
+  const dy = c.y - THROW_ORIGIN.y;
+  const t = Math.abs((((sec / 2.4) % 2) + 2) % 2 - 1); // 1 -> 0 -> 1: a triangle wave
+  return { angle: clamp(Math.atan2(dx, dy), -MAX_ANGLE, MAX_ANGLE), power: 0.2 + 0.8 * (1 - t) };
+}
+
+// Where the stone would land with this aim and this much sway (cells on the court).
+export function landing(aim, sway = 0) {
+  return resolveThrow({ angle: clamp(aim.angle + sway, -MAX_ANGLE, MAX_ANGLE), power: aim.power });
+}
+
+// The same, as the move the engine understands.
+export function throwMove(aim, sway = 0) {
+  return { angle: clamp(aim.angle + sway, -MAX_ANGLE, MAX_ANGLE), power: aim.power };
+}
+
+// A place on the court to an aim (used by tests and by the Space pull to find a power for a distance).
 export function throwToward(x, y, from = THROW_ORIGIN) {
   const dx = x - from.x;
   const dy = y - from.y;

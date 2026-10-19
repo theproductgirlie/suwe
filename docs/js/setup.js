@@ -149,6 +149,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
     drawCharacter(face.getContext("2d"), lookOf(seat), 90, 206, 1.75, {
       back: false,
       shadow: false,
+      ring: seat.color,
       sash: keepsOwnOutfit(seat) ? seat.color : null,
     });
     face.onclick = () => {
