@@ -138,7 +138,7 @@ export function musicStep(ctx, out, step, t) {
 // ---- sound effects ----------------------------------------------------------------------
 
 export const SFX = {
-  ui: (ctx, out, t) => tone(ctx, out, { t, f: 660, f2: 880, d: 0.06, gain: 0.45 }),
+  ui: (ctx, out, t) => tone(ctx, out, { t, f: 660, f2: 880, d: 0.06, gain: 0.8 }),
   throw: (ctx, out, t) => noise(ctx, out, { t, f: 400, f2: 2600, q: 0.9, d: 0.28, a: 0.03, gain: 1.4 }),
   land: (ctx, out, t) => {
     tone(ctx, out, { t, f: 170, f2: 60, d: 0.14, gain: 0.85 });
@@ -148,7 +148,7 @@ export const SFX = {
     tone(ctx, out, { t, f: 230, f2: 110, d: 0.09, gain: 0.7 });
     noise(ctx, out, { t, f: 900, q: 1, d: 0.03, gain: 0.25 });
   },
-  turn: (ctx, out, t) => tone(ctx, out, { t, f: 500, f2: 760, d: 0.12, type: "triangle", gain: 0.55 }),
+  turn: (ctx, out, t) => tone(ctx, out, { t, f: 500, f2: 760, d: 0.12, type: "triangle", gain: 0.9 }),
   pickup: (ctx, out, t) => {
     tone(ctx, out, { t, f: 520, d: 0.1, type: "triangle", gain: 0.26 });
     tone(ctx, out, { t: t + 0.09, f: 780, d: 0.16, type: "triangle", gain: 0.26 });
@@ -204,9 +204,17 @@ export function buildMaster(ctx, destination = ctx.destination) {
   comp.attack.value = 0.003;
   comp.release.value = 0.2;
   const master = ctx.createGain();
-  master.gain.value = 0.9;
+  master.gain.value = 0.85;
+  // A last-resort limiter: fast and hard, so a burst of layered sounds can never clip.
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.001;
+  limiter.release.value = 0.05;
   comp.connect(master);
-  master.connect(destination);
+  master.connect(limiter);
+  limiter.connect(destination);
   const music = ctx.createGain();
   const sfx = ctx.createGain();
   music.gain.value = 0.55;

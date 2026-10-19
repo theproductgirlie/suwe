@@ -19,11 +19,17 @@ const report = await b.evaluate(`(async () => {
     return { peak, rms: Math.sqrt(sum / d.length), bad, len: d.length / SR };
   };
   const out = { sfx: {}, music: null };
+  // The noise in the sounds is random, so render each one several times and keep the loudest.
   for (const name of Object.keys(A.SFX)) {
-    const ctx = new OfflineAudioContext(1, SR * 3, SR);
-    const bus = A.buildMaster(ctx);
-    A.SFX[name](ctx, bus.sfx, 0.01);
-    out.sfx[name] = stats(await ctx.startRendering());
+    let worst = null;
+    for (let take = 0; take < 6; take++) {
+      const ctx = new OfflineAudioContext(1, SR * 3, SR);
+      const bus = A.buildMaster(ctx);
+      A.SFX[name](ctx, bus.sfx, 0.01);
+      const s = stats(await ctx.startRendering());
+      if (!worst || s.peak > worst.peak) worst = s;
+    }
+    out.sfx[name] = worst;
   }
   // two full loops of the music, rendered through the same master chain
   const secs = A.stepSeconds() * A.STEPS * 2;
