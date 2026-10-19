@@ -1,4 +1,6 @@
-import { DEFAULT_STYLE, normalizeStyle } from "./render/character.js";
+import { DEFAULT_STYLE, normalizeStyle, drawCharacter } from "./render/character.js";
+import { icon, paintIcons, hearts, el } from "./ui.js";
+import { ROWS, squareCenter } from "./engine/court.js";
 import { createDirector } from "./director.js";
 import { createSetup, levelStars } from "./setup.js";
 import { createAudio } from "./audio.js";
@@ -81,22 +83,31 @@ document.addEventListener(
   true,
 );
 
+// A row in the pause menu / settings: icon, label, and a switch.
+const TOGGLES = {
+  music: { ico: "music", label: "Music" },
+  sfx: { ico: "volume", label: "Sound effects" },
+  voice: { ico: "chat", label: "Voice lines", note: 'Reads key phrases aloud, like "Try again"' },
+};
+function paintToggle(btn, key, on) {
+  const t = TOGGLES[key];
+  const text = el("span");
+  text.append(el("b", "", t.label));
+  if (t.note) text.append(el("small", "", t.note));
+  btn.replaceChildren(icon(t.ico, 26), text, el("span", "switch"));
+  btn.setAttribute("aria-checked", String(on));
+}
+
 function renderAudioButtons() {
   const p = audio.prefs;
-  const set = (id, label, on) => {
-    const b = $(id);
-    b.textContent = `${label}: ${on ? "On" : "Off"}`;
-    b.classList.toggle("off", !on);
-  };
-  set("opt-music", "Music", p.music);
-  set("opt-sfx", "Sound effects", p.sfx);
-  set("opt-voice", "Voice lines", p.voice);
-  set("pause-music", "Music", p.music);
-  set("pause-sfx", "Sound effects", p.sfx);
-  set("pause-voice", "Voice lines", p.voice);
+  for (const [key, on] of [["music", p.music], ["sfx", p.sfx], ["voice", p.voice]]) {
+    paintToggle($(`opt-${key}`), key, on);
+    paintToggle($(`pause-${key}`), key, on);
+  }
   const quiet = !p.music && !p.sfx;
-  $("sound-btn").textContent = quiet ? "Sound off" : "Sound on";
-  $("sound-btn").classList.toggle("off", quiet);
+  const sb = $("sound-btn");
+  sb.replaceChildren(icon(quiet ? "mute" : "volume", 24), el("span", "btn-text", quiet ? "Sound off" : "Sound on"));
+  sb.setAttribute("aria-label", quiet ? "Turn sound on" : "Turn sound off");
 }
 $("opt-music").addEventListener("click", () => {
   audio.setMusic(!audio.prefs.music);
@@ -110,13 +121,15 @@ $("opt-voice").addEventListener("click", () => {
   audio.setVoice(!audio.prefs.voice);
   renderAudioButtons();
 });
-// In a match, one button turns everything on or off.
-$("sound-btn").addEventListener("click", () => {
+// In a match, one button (or the M key) turns everything on or off.
+function toggleMute() {
   const on = !audio.prefs.music && !audio.prefs.sfx;
   audio.setMusic(on);
   audio.setSfx(on);
   renderAudioButtons();
-});
+}
+$("sound-btn").addEventListener("click", toggleMute);
+paintIcons();
 renderAudioButtons();
 
 // --- who is playing on this phone (start.ng) --------------------------------------
@@ -168,29 +181,6 @@ function fmt(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function heartsInto(el, big) {
-  const now = Date.now();
-  lives = tickLives(lives, now);
-  const hearts = Array.from({ length: MAX_LIVES }, (_, i) => {
-    const h = document.createElement("span");
-    h.textContent = "♥";
-    if (i >= lives.lives) h.className = "off";
-    return h;
-  });
-  const next = msToNextLife(lives, now);
-  const note = document.createElement("small");
-  note.textContent = next ? `Next life in ${fmt(next)}` : "";
-  if (big) {
-    const row = document.createElement("div");
-    row.className = "row";
-    row.append(...hearts);
-    el.replaceChildren(row, note);
-  } else {
-    note.textContent = next ? fmt(next) : "";
-    el.replaceChildren(...hearts, note);
-  }
-}
-
 let lastLifeKey = "";
 function renderLives(force) {
   const now = Date.now();
@@ -199,8 +189,9 @@ function renderLives(force) {
   if (!force && key === lastLifeKey) return;
   lastLifeKey = key;
   lives = t;
-  heartsInto($("menu-lives"), true);
-  heartsInto($("hud-lives"), false);
+  const next = msToNextLife(lives, now);
+  const line = $("profile-lives");
+  line.replaceChildren(icon("heart", 15), document.createTextNode(`${lives.lives} of ${MAX_LIVES} lives${next ? ` · +1 in ${fmt(next)}` : ""}`));
 }
 setInterval(() => renderLives(), 1000);
 
@@ -224,25 +215,79 @@ const players = () => game.players;
 const current = () => game.players[game.current];
 const solo = () => game.players.length === 1;
 
+// While the computer's turn is skipped, nothing is announced or played.
+let skipping = false;
+let fast = false; // "2x speed" while the computer plays
+const speed = () => (fast && game && !game.over && current().ai ? 2 : 1);
+
 const director = createDirector({
   style: DEFAULT_STYLE,
-  say,
+  say: (text, opts) => {
+    if (skipping || !game) return;
+    if (text === "Now hop!" && current().ai) return; // that prompt is for a person
+    say(text, opts);
+  },
   onFlash: (f) => (director.view.flash = { ...f, t0: performance.now(), dur: 700 }),
   onTurn: () => startTurn(),
   onOver: (result) => showResults(result),
   onHouse: (e) => celebrate(e),
-  sfx: (name) => audio.sfx(name),
+  onFail: (e) => showMiss(e),
+  sfx: (name) => {
+    if (!skipping) audio.sfx(name);
+  },
 });
 const view = director.view;
+
+const desktopQuery = matchMedia("(min-width: 1024px)");
+const isDesktop = () => desktopQuery.matches;
+
+// Tell the 3D scene where on the screen the court should sit (it depends on the screen and the window).
+function layoutScene() {
+  if (!scene.setLayout) return; // the Canvas 2D fallback has a fixed layout
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const m = document.body.dataset.mode;
+  if (m === "play") {
+    if (isDesktop()) {
+      scene.setLayout({ nearY: H - 215, farY: 150, cx: W / 2, maxCell: Math.min(W * 0.2, H * 0.22), pitch: 52 }, { ground: true });
+    } else {
+      const top = $("hud").getBoundingClientRect().bottom + 26;
+      const bottom = $("move").getBoundingClientRect().top - 100;
+      scene.setLayout({ nearY: Math.max(bottom, top + 220), farY: top, cx: W / 2, maxCell: W * 0.4, pitch: 46 }, { ground: true });
+    }
+  } else if (m === "menu") {
+    if (isDesktop()) scene.setLayout({ nearY: H * 0.95, farY: H * 0.42, cx: W * 0.74, maxCell: H * 0.16, pitch: 44 }, { ground: false });
+    else scene.setLayout({ nearY: H * 0.97, farY: H * 0.58, cx: W / 2, maxCell: W * 0.34, pitch: 38 }, { ground: false });
+  }
+}
 
 function fit() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   scene.resize(window.innerWidth, window.innerHeight, dpr);
+  layoutScene();
 }
 addEventListener("resize", fit);
 fit();
-// The court's numbers use the bundled font: redraw the backdrop once it has loaded.
+// The court's numbers use the bundled font: redraw once it has loaded.
 document.fonts?.load('800 40px "Baloo 2"').then(fit, () => {});
+
+// The home screen: the child stands on one leg by the court, with the stone beside them.
+function menuStage() {
+  director.reset();
+  const desk = isDesktop();
+  view.hero.style = normalizeStyle(me.style);
+  view.hero.color = null;
+  view.hero.sash = false;
+  view.hero.x = desk ? -0.75 : 1.0;
+  view.hero.y = desk ? 1.5 : ROWS + 0.5;
+  Object.assign(view.hero.pose, { back: true, oneLeg: true, lift: 0, bend: 0, tilt: 0, hold: false, facing: 1 });
+  view.stone = { x: view.hero.x + (desk ? 0.8 : 0.85), y: view.hero.y - 0.05, h: 0 };
+  view.waiting = [];
+  view.houses = [];
+  view.hint = null;
+  view.mark = null;
+  view.flash = null;
+}
 
 // Whose turn it is: they take the court, the others wait beside the start.
 function applyLooks() {
@@ -263,60 +308,83 @@ function applyLooks() {
 
 let announced = false;
 function startTurn() {
+  hideMiss();
   applyLooks();
   const p = current();
-  if (solo()) say(announced ? "Throw again!" : "Oya, throw!", { speech: announced ? "" : "Oya, throw" });
-  else if (p.ai) say(`${p.name} is playing...`);
-  else say(`${p.name}, your turn!`, { speech: "Oya, your turn" });
+  if (!skipping) {
+    if (solo()) say(announced ? "Throw again!" : "Oya, throw!", { speech: announced ? "" : "Oya, throw" });
+    else if (!p.ai) say(`${p.name}, your turn!`, { speech: "Oya, your turn" });
+  }
   announced = true;
   refreshHud();
 }
 
 // --- HUD ------------------------------------------------------------------------------------
 const pips = $("pips");
-for (let n = 1; n <= 12; n++) {
-  const d = document.createElement("i");
-  d.textContent = n;
-  pips.append(d);
+for (let n = 1; n <= 12; n++) pips.append(document.createElement("i"));
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// What the player is asked to do, as the "Your move" card.
+function moveInfo(e) {
+  const p = current();
+  const desk = isDesktop();
+  const tap = desk ? "Click" : "Tap";
+  if (e.kind === "throw")
+    return { ico: "throw", kind: "Throw", title: `Throw at square ${e.target}`, desc: "Drag the stone back, then let go to throw.", tip: "Land inside the square without touching a chalk line" };
+  if (e.kind === "backthrow")
+    return { ico: "throw", kind: "Ra Ile", title: "Throw over your shoulder", desc: "Drag back and throw over your shoulder to buy a house.", tip: "Land on an empty square to buy a house" };
+  if (e.kind === "tiebreak")
+    return { ico: "throw", kind: "Tie-break", title: "Closest to the mark", desc: "Throw the stone closest to the red mark.", tip: "Drag back, then let go" };
+  if (e.kind === "pickup")
+    return { ico: "hand", kind: "Pick up", title: "Pick up the stone", desc: `${tap} Pick up when the needle is in the green.`, tip: "Wrong timing costs a heart" };
+  if (e.to === "start")
+    return { ico: "up", kind: "Hop", title: `${tap} HOME`, desc: "Hop home to finish the course.", tip: "Wrong square or a chalk line costs a heart" };
+  return {
+    ico: "up",
+    kind: "Hop",
+    title: desk ? `Square ${e.to}` : `${tap} square ${e.to}`,
+    desc: e.needsTiming
+      ? `Jump over square ${p.target}. Your stone is there, so you can't step on it. ${tap} with the needle in the green.`
+      : `${tap} the glowing square.`,
+    tip: "Wrong square or a chalk line costs a heart",
+  };
 }
 
-function hintText(e) {
-  const p = current();
-  if (p.ai) return `${p.name} is playing`;
-  if (e.kind === "throw") return "Drag the stone back, then let go to throw";
-  if (e.kind === "backthrow") return "Ra Ile! Drag back and throw over your shoulder to buy a house";
-  if (e.kind === "tiebreak") return "Tie-break! Throw the stone closest to the red mark";
-  if (e.kind === "pickup") return "Tap Pick up when the needle is in the green";
-  if (e.needsTiming) return "Big jump! Tap the glowing square with the needle in the green";
-  return e.to === "start" ? "Tap HOME to finish. Wrong tap = you miss!" : "Tap the glowing square. Wrong tap = you miss!";
-}
+const LEVEL_NAME = { easy: "Easy", medium: "Medium", hard: "Hard" };
 
 function renderBoard() {
+  const cur = current();
   const board = $("board");
+  board.className = players().length === 1 ? "solo" : "";
   board.replaceChildren(
-    ...players().map((p) => {
-      const chip = document.createElement("div");
-      chip.className = `chip-p${p === current() ? " now" : ""}${p.out ? " out" : ""}`;
-      chip.style.setProperty("--c", p.color ?? "#999");
-      const name = document.createElement("b");
-      name.textContent = p.name;
-      const line = document.createElement("span");
-      const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-      line.textContent = p.out ? "OUT" : `${plural(p.lives, "life").replace("lifes", "lives")} · ${plural(p.houses.length, "house")}`;
-      if (p.ai) {
-        const tag = document.createElement("em");
-        tag.className = "ai";
-        tag.textContent = levelStars(p.ai);
-        tag.title = `${p.ai} computer`;
-        line.append(tag);
-      }
-      chip.append(name, line);
-      if (!p.out) {
-        const next = document.createElement("span");
-        next.textContent = `Next: square ${p.target}`;
-        chip.append(next);
-      }
-      return chip;
+    ...players().map((p, i) => {
+      const card = el("div", `pcard${p === cur ? " now" : ""}${p.out ? " out" : ""}`);
+      card.style.setProperty("--c", p.color ?? "#999");
+      card.append(el("span", "pbadge", `P${i + 1}`));
+      const info = el("div", "pinfo");
+      const name = el("div", "pname");
+      name.append(el("span", "n-short", i === 0 && !p.ai ? "You" : p.name), el("span", "n-full", p.name));
+      if (p.ai) name.append(el("span", "cpu", `· CPU`));
+      info.append(name);
+      const status = p.out ? "Out of hearts" : p === cur ? "Playing now" : p.ai ? `Computer · ${LEVEL_NAME[p.ai] ?? ""}` : "Up next";
+      info.append(el("div", "pstatus", p === cur && p.ai ? `Playing now · Computer` : status));
+      const stats = el("div", "pstats");
+      stats.append(hearts(p.lives, MAX_LIVES));
+      const houses = el("span", "houses");
+      houses.append(icon("house", 18), el("span", "h-n", String(p.houses.length)), el("span", "h-label", p.houses.length === 1 ? " house" : " houses"));
+      stats.append(houses);
+      info.append(stats);
+      const prog = el("div", "pprog");
+      const done = Math.max(0, Math.min(12, p.target - 1));
+      const head = el("div", "progress-head");
+      head.append(el("span", "", "Progress"), el("span", "", `${done} of 12`));
+      const segs = el("div", "segs");
+      for (let n = 1; n <= 12; n++) segs.append(el("i", n <= done ? "done" : n === done + 1 ? "now" : ""));
+      prog.append(head, segs);
+      info.append(prog);
+      card.append(info);
+      return card;
     }),
   );
 }
@@ -328,14 +396,47 @@ function refreshHud() {
   if (!game) return;
   const p = current();
   renderBoard();
-  $("turn").textContent = `${solo() ? "Attempt" : "Turn"} ${game.turnNo}${p.circuits ? ` · Round ${p.circuits + 1}` : ""}`;
-  [...pips.children].forEach((d, i) => {
-    d.classList.toggle("done", i + 1 < p.target);
-    d.classList.toggle("now", i + 1 === p.target);
-  });
-  const e = expectation(game);
-  $("hint").textContent = hintText(e);
   const mine = !p.ai;
+  const who = mine && (solo() || p === players()[0]) ? "Your" : `${p.name}'s`;
+  const banner = $("banner");
+  banner.style.setProperty("--c", p.color ?? "#999");
+  banner.replaceChildren(document.createTextNode(`${who} turn`), el("small", "", `· ${solo() ? "Attempt" : "Turn"} ${game.turnNo}${p.circuits ? ` · Round ${p.circuits + 1}` : ""}`));
+  // Progress strip (phone): the player whose turn it is.
+  const done = Math.max(0, Math.min(12, p.target - 1));
+  $("progress").style.setProperty("--c", p.color ?? "#999");
+  $("progress-who").textContent = mine ? "Your progress" : `${p.name}'s progress`;
+  $("progress-count").textContent = `${done} of 12 squares`;
+  [...pips.children].forEach((d, i) => {
+    d.className = i < done ? "done" : i === done ? "now" : "";
+  });
+
+  const e = expectation(game);
+  // "Your move" for a person, "Watching" for the computer.
+  $("move-card").hidden = !mine;
+  $("watch-card").hidden = mine;
+  $("move-label").textContent = mine ? "Your move" : "Watching";
+  if (mine) {
+    const m = moveInfo(e);
+    $("move-icon").replaceChildren(icon(m.ico, 34));
+    $("move-kind").textContent = m.kind;
+    $("move-title").textContent = m.title;
+    $("move-desc").textContent = m.desc;
+    $("move-tip").replaceChildren(icon("heart", 18), document.createTextNode(m.tip));
+  } else {
+    const verb = game.phase === "hop" ? "hopping" : game.phase === "pickup" ? "picking up the stone" : "throwing";
+    const title = $("watch-title");
+    title.replaceChildren(document.createTextNode(`${p.name} is ${verb}`), el("span", "dots-anim"));
+    const sub = $("watch-sub");
+    sub.replaceChildren(document.createTextNode(`${LEVEL_NAME[p.ai] ?? ""} `), el("span", "stars", levelStars(p.ai)), document.createTextNode(` · on square ${p.target}`));
+    $("skip-note").textContent = `Skipping jumps straight to the result of ${p.name}'s turn. Nothing about the score changes.`;
+    const face = $("watch-face");
+    let cv = face.firstChild;
+    if (!cv) face.append((cv = el("canvas")));
+    cv.width = cv.height = 152;
+    const c = cv.getContext("2d");
+    c.clearRect(0, 0, 152, 152);
+    drawCharacter(c, normalizeStyle(p.look), 76, 176, 1.5, { back: false, shadow: false });
+  }
   $("pickup").hidden = !(mine && game.phase === "pickup");
   $("meter").hidden = !(mine && e.needsTiming);
   if (e.needsTiming) $("zone").style.width = `${e.zone * 100}%`;
@@ -346,6 +447,7 @@ function refreshHud() {
     lastKey = key;
     meterStart = performance.now();
   }
+  requestAnimationFrame(layoutScene);
 }
 
 function needle(now) {
@@ -366,8 +468,10 @@ function syncHearts() {
   }
 }
 
+let actor = null; // whoever made the move being shown (the state has already moved on to the next player)
 function commit(r) {
   if (r.rejected) return;
+  actor = game ? players()[game.current] : null;
   game = r.state;
   syncHearts();
   saveMatch();
@@ -383,13 +487,107 @@ let aiTimer = null;
 function scheduleAi() {
   if (aiTimer || paused || !game || game.over || director.busy || !current().ai) return;
   const id = matchId;
-  const delay = ["throw", "ra_ile", "tiebreak"].includes(game.phase) ? 900 : 450;
+  const delay = (["throw", "ra_ile", "tiebreak"].includes(game.phase) ? 900 : 450) / speed();
   aiTimer = setTimeout(() => {
     aiTimer = null;
     if (id !== matchId || paused || !game || game.over || director.busy || !current().ai) return;
     commit(playAiMove(game, current().ai));
   }, delay);
 }
+
+// --- the "missed" card -------------------------------------------------------------------
+const MISS = {
+  line_stone: ["On the line!", (who) => `${who} stone touched the chalk.`],
+  line: ["On the line!", (who) => `${who} foot touched the chalk.`],
+  miss: ["Missed the square!", (who) => `${who} stone did not land in the square.`],
+  stone_square: ["That's the stone's square!", () => "The square with the stone in it can't be stepped on."],
+  sequence: ["Wrong square!", () => "Hop to the glowing square next."],
+  balance: ["Lost your balance!", () => "The needle was out of the green."],
+  opponent_house: ["That's someone's house!", () => "A bought square can't be stepped on."],
+  outside: ["Out of the court!", () => "Stay inside the chalk."],
+};
+let missShown = false;
+function showMiss(e) {
+  if (skipping || !game) return;
+  const failed = actor ?? current();
+  const failer = players().find((q) => q.id === failed.id) ?? failed; // the new state's copy
+  const human = !failer.ai && (solo() || failer.id === players()[0].id);
+  const who = human ? "Your" : `${failer.name}'s`;
+  const [title, why] = MISS[e.reason] ?? ["Try again!", () => ""];
+  $("miss-title").textContent = title;
+  $("miss-why").textContent = `${why(who)} ${human ? "Your" : `${failer.name}'s`} turn ends.`.replace("  ", " ");
+  const row = $("miss-hearts");
+  const left = Math.max(0, e.lives);
+  const h = hearts(left, MAX_LIVES);
+  if (left < MAX_LIVES) {
+    h.children[left].classList.remove("off");
+    h.children[left].classList.add("off");
+    h.children[left].append(el("span", "lost-badge", "−1"));
+  }
+  row.replaceChildren(...h.children);
+  $("miss-left").textContent = isDesktop() ? `${left} ${left === 1 ? "heart" : "hearts"} left` : `${left} left`;
+  $("miss-restart").textContent =
+    left === 0
+      ? `${human ? "You are" : `${failer.name} is`} out of hearts.`
+      : `Next turn ${human ? "you throw" : `${failer.name} throws`} again for square ${failer.target}.`;
+  const next = game.over ? null : current();
+  $("miss-ok-text").textContent = solo() ? "OK, throw again" : `OK, ${next && next.id !== failer.id ? `${next.name}'s turn` : "go on"}`;
+  $("miss-art").replaceChildren(missArt());
+  $("miss").hidden = false;
+  missShown = true;
+  updateMissTimer(0);
+}
+function updateMissTimer(left) {
+  $("miss-bar").style.width = `${Math.max(0, Math.min(1, left / 2000)) * 100}%`;
+  const sec = Math.max(0, Math.ceil(left / 1000));
+  $("miss-count").textContent = isDesktop() ? `Continues in ${sec || 2}s` : `Continues by itself in ${sec || 2}s`;
+}
+function hideMiss() {
+  if (!missShown) return;
+  missShown = false;
+  $("miss").hidden = true;
+}
+function okMiss() {
+  if (!missShown) return;
+  director.release();
+}
+$("miss-ok").addEventListener("click", okMiss);
+
+// A stone on a chalk line, with a red cross: the picture on the missed card.
+function missArt() {
+  const wrap = document.createElement("span");
+  wrap.innerHTML = `<svg viewBox="0 0 110 110" aria-hidden="true"><circle cx="55" cy="58" r="46" fill="var(--sky)"/><rect x="16" y="62" width="78" height="9" rx="4.5" fill="var(--soft)" opacity=".45"/><ellipse cx="55" cy="57" rx="20" ry="12" fill="color-mix(in srgb, var(--ink) 55%, var(--chalk))"/><ellipse cx="49" cy="53" rx="6" ry="3.2" fill="var(--chalk)" opacity=".6"/><circle cx="84" cy="22" r="15" fill="var(--danger)" stroke="var(--card)" stroke-width="4"/><path d="m78 16 12 12M90 16 78 28" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>`;
+  return wrap.firstChild;
+}
+
+// --- skipping the computer's turn ------------------------------------------------------------
+function skipComputer() {
+  if (!game || game.over || !current().ai || skipping) return;
+  const id = matchId;
+  skipping = true;
+  clearTimeout(aiTimer);
+  aiTimer = null;
+  hideMiss();
+  try {
+    director.finish();
+    for (let i = 0; i < 600 && game && !game.over && id === matchId && current().ai; i++) {
+      commit(playAiMove(game, current().ai));
+      director.finish();
+    }
+  } finally {
+    skipping = false;
+  }
+  if (game && id === matchId) {
+    refreshHud();
+    say(`${current().name}, your turn!`, { speech: "Oya, your turn" });
+  }
+}
+$("skip-btn").addEventListener("click", skipComputer);
+$("speed-btn").addEventListener("click", () => {
+  fast = !fast;
+  $("speed-btn").classList.toggle("on", fast);
+  $("speed-text").textContent = fast ? "2× speed on" : "2× speed";
+});
 
 // --- input --------------------------------------------------------------------------------------
 const MIN_POWER = 0.12;
@@ -567,37 +765,58 @@ async function submitScore(g, result, elapsedMs) {
   }
 }
 
+let lbHasScores = null; // unknown until the board has been loaded once
+function renderLbHint() {
+  $("lb-hint").textContent = lbHasScores === false ? "Top spot is open" : "See the best wins";
+}
+
+function lbRow(cls, rank, face, name, sub, val) {
+  const r = el("div", `lb-row ${cls}`);
+  const who = el("div");
+  who.append(el("span", "who-name", name));
+  if (sub) who.append(el("small", "", sub));
+  r.append(el("span", "rank", String(rank)), el("span", "face", face), who, el("span", "val", val));
+  return r;
+}
+
+function fillPlaceholders(list) {
+  list.append(el("h4", "", "Places to win"));
+  ["This could be you", "Open", "Open", "Open", "Open"].forEach((n, i) => list.append(lbRow(i === 0 ? "first" : "open", i + 1, i === 0 ? "You?" : "", n, "", "–")));
+}
+
 async function showLeaderboard() {
+  const empty = $("lb-empty");
+  const list = $("lb-list");
   const status = $("lb-status");
-  const table = $("lb-table");
-  table.hidden = true;
+  empty.hidden = false;
+  $("lb-play").hidden = true;
+  list.replaceChildren();
   status.textContent = "Loading...";
   const reply = await loadLeaderboard(10);
   if (document.body.dataset.mode !== "leaderboard") return;
   if (!reply?.ok) {
     status.textContent = onStartNg() ? "Couldn't reach start.ng. Try again in a moment." : "The leaderboard works on suwe.start.ng.";
+    $("lb-play").hidden = false;
+    fillPlaceholders(list);
     return;
   }
   const entries = reply.entries ?? [];
+  lbHasScores = entries.length > 0;
+  renderLbHint();
   if (!entries.length) {
-    status.textContent = "No scores yet. Beat the computer on Medium or Hard to be first!";
+    status.textContent = "Beat the computer on Medium or Hard and your win lands here first. Nobody on start.ng has done it yet.";
+    $("lb-play").hidden = false;
+    fillPlaceholders(list);
     return;
   }
-  status.textContent = "";
-  const rows = entries.map((e) => {
-    const tr = document.createElement("tr");
-    if (me.id != null && e.player_id === me.id) tr.className = "me";
+  empty.hidden = true;
+  list.append(el("h4", "", "Best wins"));
+  entries.forEach((e, i) => {
     const st = e.stats ?? {};
-    const cells = [e.rank, e.name, st.houses ?? e.score, `${st.accuracy ?? 0}%`, st.mistakes ?? 0, fmt((st.seconds ?? 0) * 1000)];
-    cells.forEach((v) => {
-      const td = document.createElement("td");
-      td.textContent = String(v);
-      tr.append(td);
-    });
-    return tr;
+    const initials = String(e.name ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+    const row = lbRow(`${i === 0 ? "first" : ""}${me.id != null && e.player_id === me.id ? " me" : ""}`, e.rank, initials, e.name, `${st.accuracy ?? 0}% accuracy · ${st.mistakes ?? 0} mistakes · ${fmt((st.seconds ?? 0) * 1000)}`, plural(st.houses ?? e.score ?? 0, "house"));
+    list.append(row);
   });
-  $("lb-rows").replaceChildren(...rows);
-  table.hidden = false;
 }
 
 // --- screens ---------------------------------------------------------------------------------------
@@ -607,10 +826,15 @@ function mode(m) {
   for (const id of SCREENS) $(id).hidden = id !== m;
   if (m === "howto") tutorial.start();
   else tutorial.stop();
-  if (m === "menu") renderMenu();
+  if (m !== "play") hideMiss();
+  if (m === "menu") {
+    renderMenu();
+    menuStage();
+  }
   if (m === "settings") renderSettings();
   if (m === "leaderboard") showLeaderboard();
   renderLives(true);
+  layoutScene();
 }
 
 // "You Don Buy House": a short celebration over the court.
@@ -699,15 +923,15 @@ $("results-again").addEventListener("click", () => $("play").click());
 $("results-menu").addEventListener("click", () => mode("menu"));
 $("gate-signin").href = signInUrl();
 
-// The menu button: sign in first when needed, then play.
+// The Play button: sign in first when needed, then pick the players.
 function renderPlayButton() {
   const btn = $("play");
   btn.disabled = !meReady;
-  btn.textContent = !meReady ? "Loading..." : needsSignIn() ? "Sign in to play" : "Play SUWE";
+  btn.textContent = !meReady ? "Loading..." : needsSignIn() ? "Sign in to play" : "Play";
   btn.classList.toggle("go", meReady && !needsSignIn());
 }
 
-$("play").addEventListener("click", () => {
+function openSetup(opts = {}) {
   if (!meReady) return;
   if (needsSignIn()) {
     location.href = signInUrl();
@@ -723,9 +947,11 @@ $("play").addEventListener("click", () => {
     return;
   }
   if (loadSave() && !confirm("Start a new match? Your saved match will be lost.")) return;
-  setup.show();
+  setup.show(opts);
   mode("setup");
-});
+}
+$("play").addEventListener("click", () => openSetup());
+$("lb-play").addEventListener("click", () => openSetup({ count: 2 }));
 
 const setup = createSetup($("setup"), {
   getMe: () => ({ name: me.name, style: me.style, signedIn: me.signedIn }),
@@ -756,7 +982,6 @@ function startMatch(cfg) {
 // again (or Resume, or the dark area, or Esc) closes the menu and carries on.
 let paused = false;
 let pausedAt = 0;
-let pauseOffset = 0; // total time spent paused, to keep the animation clock honest
 
 function setPaused(on) {
   if (on === paused) return;
@@ -764,8 +989,6 @@ function setPaused(on) {
   paused = on;
   document.body.classList.toggle("paused", on);
   $("pause-menu").setAttribute("aria-hidden", String(!on));
-  $("menu-btn").classList.toggle("on", on);
-  $("menu-btn").textContent = on ? "Close" : "Menu";
   if (on) {
     pausedAt = performance.now();
     clearTimeout(aiTimer);
@@ -773,19 +996,25 @@ function setPaused(on) {
     drag = null;
     view.aim = null;
     saveMatch();
+    const others = players().filter((q) => q !== players()[0]);
+    $("pause-sub").textContent = `${others.length ? `vs ${others.map((q) => q.name).join(", ")}` : "Solo practice"} · Turn ${game.turnNo} · you're on square ${players()[0].target}`;
+    $("pause-dots").replaceChildren(
+      ...players().map((q) => {
+        const d = document.createElement("i");
+        d.style.background = q.color ?? "#999";
+        return d;
+      }),
+    );
+    renderAudioButtons();
   } else {
-    const away = performance.now() - pausedAt;
-    pauseOffset += away;
-    meterStart += away; // the balance needle carries on from where it was
+    meterStart += performance.now() - pausedAt; // the balance needle carries on from where it was
   }
 }
 
 $("menu-btn").addEventListener("click", () => setPaused(!paused));
+$("pause-close").addEventListener("click", () => setPaused(false));
 $("pause-scrim").addEventListener("click", () => setPaused(false));
 $("pause-resume").addEventListener("click", () => setPaused(false));
-addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && document.body.dataset.mode === "play") setPaused(!paused);
-});
 $("pause-music").addEventListener("click", () => $("opt-music").click());
 $("pause-sfx").addEventListener("click", () => $("opt-sfx").click());
 $("pause-voice").addEventListener("click", () => $("opt-voice").click());
@@ -804,6 +1033,25 @@ $("pause-leave").addEventListener("click", () => {
   mode("menu");
 });
 
+// --- keyboard (desktop): Esc pause, M sound, Space hop, S skip the computer, Enter continue ---
+addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.closest?.("input, textarea, select")) return;
+  const playing = document.body.dataset.mode === "play";
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (key === "Escape" && playing) setPaused(!paused);
+  else if (key === "m" && playing) toggleMute();
+  else if (key === "Enter" && missShown) {
+    e.preventDefault();
+    okMiss();
+  } else if (key === "s" && playing && !paused) skipComputer();
+  else if (key === " " && playing && humanTurn() && !missShown) {
+    e.preventDefault();
+    document.activeElement?.blur?.();
+    if (game.phase === "hop") submit({ type: "hop", square: expectation(game).to, timing: needle(performance.now()) });
+    else if (game.phase === "pickup") submit({ type: "pickup", timing: needle(performance.now()) });
+  }
+});
 
 // --- menu, settings and how to play ---------------------------------------------------------------
 const tutorial = createTutorial($("howto"), {
@@ -829,8 +1077,24 @@ const tutorial = createTutorial($("howto"), {
 });
 
 function renderMenu() {
-  $("continue").hidden = !loadSave();
+  const d = loadSave();
+  $("continue-card").hidden = !d;
+  $("continue").hidden = !d;
+  if (d) {
+    const g = d.game;
+    const others = g.players.slice(1);
+    const vs = others.length ? `vs ${others.map((q) => q.name).join(", ")}` : "Solo";
+    $("saved-line").textContent = `${vs} · Turn ${g.turnNo} · Square ${g.players[0].target}`;
+    $("saved-dots").replaceChildren(
+      ...g.players.map((q) => {
+        const i = document.createElement("i");
+        i.style.background = q.color ?? "#999";
+        return i;
+      }),
+    );
+  }
   $("howto-new").hidden = Boolean(store.get("suwe.seenTutorial"));
+  renderLbHint();
 }
 
 function renderSettings() {
@@ -859,9 +1123,14 @@ $("discard-save").addEventListener("click", () => {
 
 // --- frame loop ---------------------------------------------------------------------------------------
 let wasBusy = false;
+let animT = 0; // the animation clock: stands still while paused, runs twice as fast on 2x speed
+let lastT = null;
+const tip = $("tip");
 function frame(t) {
-  // While paused the animation clock stands still, so nothing jumps ahead on resume.
-  if (!paused) director.update(t - pauseOffset);
+  const dt = lastT === null ? 0 : Math.min(100, t - lastT);
+  lastT = t;
+  if (!paused) animT += dt * speed();
+  director.update(animT);
   const busy = director.busy;
   if (game) {
     if (wasBusy && !busy) {
@@ -870,6 +1139,17 @@ function frame(t) {
     }
     if (!busy) scheduleAi();
     if (!$("meter").hidden && !busy) $("needle").style.left = `${50 + needle(t) * 50}%`;
+    if (missShown) updateMissTimer(director.gateLeft(animT));
+  }
+  // "Tap here": a label on the glowing square, for the person whose turn it is.
+  const showTip = game && document.body.dataset.mode === "play" && !paused && !busy && !current().ai && game.phase === "hop" && Number.isInteger(view.hint);
+  tip.hidden = !showTip;
+  if (showTip) {
+    const c = squareCenter(view.hint);
+    const pt = scene.project(c.x, c.y + 0.3);
+    tip.textContent = isDesktop() ? "Click to hop" : "Tap here";
+    tip.style.left = `${pt.x}px`;
+    tip.style.top = `${pt.y}px`;
   }
   wasBusy = busy;
   scene.draw(view, t);
@@ -938,7 +1218,7 @@ function showPlayer(p) {
   const unsigned = onStartNg() && !p.signedIn;
   const name = unsigned ? "Not signed in" : p.name;
   card.name.textContent = name;
-  card.account.textContent = p.account ? `@${p.account}` : unsigned ? "Sign in to play" : "Local test";
+  card.account.textContent = unsigned ? "Sign in to play" : "";
   if (p.face && !unsigned) card.face.src = p.face;
   card.face.hidden = !p.face || unsigned;
   card.initials.textContent = unsigned

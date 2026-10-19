@@ -5,20 +5,21 @@
 // throwing line. project()/unproject()/hitSquare() keep the names and meaning they have in
 // scene-2d.js, so touch aiming and the HUD work unchanged.
 //
-//   - sky, sun, ground, compound wall, trees and the court are 3D meshes
+//   - the ground and the court are 3D meshes; every colour comes from css/theme.css (js/theme.js)
 //   - children are built from simple shapes from their start.ng style (see figure() below)
 //   - the stone is a lit sphere that really flies through the air
 //   - houses, hints, flashes and marks are decals lying on the court
 //   - only the sling-shot aiming line is drawn flat on the screen (it follows the finger)
+//   - setLayout() tells the camera where on the screen the court should sit (phone, desktop, menu)
 
 import * as THREE from "../vendor/three.module.min.js";
 import { COLS, ROWS, cellToSquare, squareRect, squareToCell } from "../engine/court.js";
-import { normalizeStyle, STOCK } from "./character.js";
+import { normalizeStyle } from "./character.js";
+import { readTheme, watchTheme } from "../theme.js";
 
 const FONT = '"Baloo 2", "Trebuchet MS", system-ui, sans-serif';
 const K = 0.0072; // world units per character unit (a 100-unit child is 0.72 of a cell tall)
 const K_H = 0.0075; // the director's stone heights (screen px) to world units
-const WALL_Z = -ROWS - 2.3;
 
 const wx = (x) => x - COLS / 2;
 const wz = (y) => -y;
@@ -36,6 +37,9 @@ const HAIR_TOP = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, 1.15);
 const HAIR_BACK = new THREE.SphereGeometry(1, 20, 14, (3 * Math.PI) / 2 + 1.05, Math.PI * 2 - 2.1, 0, 2.15);
 const HAT_TOP = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
 
+// The stone is a warm grey: the ink colour mixed halfway to the chalk.
+const stoneColor = (theme) => new THREE.Color(theme.ink).lerp(new THREE.Color(theme.chalk), 0.5);
+
 const shade = (hex, amt) => {
   const c = new THREE.Color(hex);
   const f = amt / 255;
@@ -52,7 +56,7 @@ const shade = (hex, amt) => {
 // A child, built from shapes. Local axes: +x is the child's right, +y up, and the face is at -z,
 // so with no rotation the child faces away from the camera, up the court. Everything inside
 // `unit` is in character units (100 = a child's height) and scaled by K.
-function figure(style) {
+function figure(style, theme) {
   const st = normalizeStyle(style);
   const female = st.body === "female";
   const mats = [];
@@ -66,10 +70,10 @@ function figure(style) {
   const shirt = lambert(st.primaryColor);
   const under = lambert(st.secondaryColor);
   const hair = lambert(st.hairColor, { side: THREE.DoubleSide });
-  const shoe = lambert("#f1f3f5");
-  const dark = new THREE.MeshBasicMaterial({ color: "#1b1209" });
+  const shoe = lambert(theme.chalk);
+  const dark = new THREE.MeshBasicMaterial({ color: theme.ink });
   mats.push(dark);
-  const stoneMat = lambert("#6c757d");
+  const stoneMat = lambert(stoneColor(theme));
   const sashMat = lambert("#ffffff");
 
   const root = new THREE.Group(); // position on the court, tilt
@@ -211,14 +215,14 @@ function figure(style) {
   // Ground marks (stay on the ground when the child hops or tips over).
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(1, 20),
-    new THREE.MeshBasicMaterial({ color: 0x281908, transparent: true, opacity: 0.28, depthWrite: false })
+    new THREE.MeshBasicMaterial({ color: theme.ink, transparent: true, opacity: 0.28, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.014;
   shadow.renderOrder = 6;
   mats.push(shadow.material);
   root.add(shadow);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthWrite: false });
+  const ringMat = new THREE.MeshBasicMaterial({ color: theme.chalk, side: THREE.DoubleSide, depthWrite: false });
   mats.push(ringMat);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 28), ringMat);
   ring.rotation.x = -Math.PI / 2;
@@ -291,15 +295,23 @@ function figure(style) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------
 // The scene
 // ---------------------------------------------------------------------------------------------
 
+// Canvas colours: a theme hex with an alpha.
+const css = (hex, a) => {
+  const n = parseInt(hex.replace("#", "").padEnd(6, "0").slice(0, 6), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
 export function createScene(canvas) {
   // Throws if WebGL is unavailable; main.js then falls back to scene-2d.js.
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-  renderer.setClearColor(0xe9cf99, 1);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
   renderer.autoClear = false;
 
+  let theme = readTheme();
   const world = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 90);
 
@@ -322,132 +334,34 @@ export function createScene(canvas) {
   };
   const basic = (opts) => new THREE.MeshBasicMaterial({ depthWrite: false, ...opts });
 
-  // --- sky, sun ---
-  {
-    const cv = makeCanvas(2, 256);
+  // --- ground: swept sand with speckles (colours from the theme) ---
+  const groundTex = (() => {
+    const t = new THREE.CanvasTexture(makeCanvas(256, 256));
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(26, 18);
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return t;
+  })();
+  function paintGround() {
+    const cv = groundTex.image;
     const c = cv.getContext("2d");
-    const g = c.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, "#74c0fc");
-    g.addColorStop(0.55, "#bfe3f7");
-    g.addColorStop(1, "#ffe8a3");
-    c.fillStyle = g;
-    c.fillRect(0, 0, 2, 256);
-    world.background = canvasTex(cv);
-    const sc = makeCanvas(128, 128);
-    const s = sc.getContext("2d");
-    const rg = s.createRadialGradient(64, 64, 8, 64, 64, 64);
-    rg.addColorStop(0, "rgba(255,248,200,1)");
-    rg.addColorStop(0.55, "rgba(255,244,180,0.9)");
-    rg.addColorStop(1, "rgba(255,244,180,0)");
-    s.fillStyle = rg;
-    s.fillRect(0, 0, 128, 128);
-    const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: canvasTex(sc), depthWrite: false, fog: false }));
-    sunSprite.position.set(2.6, 6.2, WALL_Z - 10);
-    sunSprite.scale.setScalar(9);
-    sunSprite.renderOrder = -1;
-    world.add(sunSprite);
-  }
-
-  // --- ground: swept sand with speckles ---
-  {
-    const cv = makeCanvas(256, 256);
-    const c = cv.getContext("2d");
-    c.fillStyle = "#dfc287";
+    c.fillStyle = theme.bg;
     c.fillRect(0, 0, 256, 256);
-    c.fillStyle = "rgba(150,110,50,0.20)";
+    c.fillStyle = css(theme.soft, 0.16);
     for (let i = 0; i < 160; i++) {
       c.fillRect((Math.abs(Math.sin(i * 91.7)) * 256) | 0, (Math.abs(Math.sin(i * 37.3)) * 256) | 0, 3, 2);
     }
-    c.fillStyle = "rgba(255,240,200,0.18)";
+    c.fillStyle = css(theme.chalk, 0.18);
     for (let i = 0; i < 90; i++) {
       c.fillRect((Math.abs(Math.sin(i * 51.3)) * 256) | 0, (Math.abs(Math.sin(i * 73.1)) * 256) | 0, 2, 2);
     }
-    const tex = canvasTex(cv);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(26, 18);
-    // The compound floor stops at the wall...
-    const depth = 14 - WALL_Z;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, depth), new THREE.MeshBasicMaterial({ map: tex }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(0, 0, 14 - depth / 2);
-    world.add(ground);
-    // ...and beyond it is a strip of grass for the trees, then the sky.
-    const grass = new THREE.Mesh(new THREE.PlaneGeometry(120, 16), new THREE.MeshBasicMaterial({ color: "#8fcf72" }));
-    grass.rotation.x = -Math.PI / 2;
-    grass.position.set(0, -0.01, WALL_Z - 8);
-    world.add(grass);
+    groundTex.needsUpdate = true;
   }
-
-  // --- compound wall: painted blocks, a cap and a green stripe ---
-  {
-    const cv = makeCanvas(1024, 256);
-    const c = cv.getContext("2d");
-    c.fillStyle = "#f1d8a5";
-    c.fillRect(0, 0, 1024, 256);
-    c.strokeStyle = "rgba(120,80,30,0.28)";
-    c.lineWidth = 3;
-    const bw = 128;
-    const rows = 3;
-    for (let row = 0; row <= rows; row++) {
-      const y = (256 / rows) * row;
-      c.beginPath();
-      c.moveTo(0, y);
-      c.lineTo(1024, y);
-      c.stroke();
-      for (let i = row % 2 ? -0.5 : 0; i < 9; i++) {
-        c.beginPath();
-        c.moveTo(i * bw, y);
-        c.lineTo(i * bw, y + 256 / rows);
-        c.stroke();
-      }
-    }
-    c.fillStyle = "#2b8a3e";
-    c.fillRect(0, 256 - 26, 1024, 26);
-    const tex = canvasTex(cv);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.repeat.set(5, 1);
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(46, 1.05, 0.35), new THREE.MeshLambertMaterial({ map: tex }));
-    wall.position.set(0, 0.525, WALL_Z);
-    world.add(wall);
-    const cap = new THREE.Mesh(BOX, new THREE.MeshLambertMaterial({ color: "#c79a5b" }));
-    cap.scale.set(46, 0.14, 0.62);
-    cap.position.set(0, 1.12, WALL_Z);
-    world.add(cap);
-  }
-
-  // --- trees behind the wall ---
-  {
-    const trunk = new THREE.MeshLambertMaterial({ color: "#6b4a2b" });
-    const leaves = ["#2b8a3e", "#2f9e44", "#37b24d", "#40c057"].map((col) => new THREE.MeshLambertMaterial({ color: col }));
-    const tree = (x, z, s) => {
-      const g = new THREE.Group();
-      const t = new THREE.Mesh(CYL, trunk);
-      t.scale.set(0.2, 2.4, 0.2);
-      t.position.y = 1.2;
-      g.add(t);
-      const blobs = [
-        [0, 2.9, 0, 1.2, 0],
-        [-0.9, 2.3, 0.1, 0.95, 1],
-        [0.9, 2.35, 0.1, 0.95, 2],
-        [0, 3.7, 0, 0.85, 3],
-      ];
-      for (const [dx, dy, dz, r, i] of blobs) {
-        const b = new THREE.Mesh(SPHERE, leaves[i]);
-        b.position.set(dx, dy, dz);
-        b.scale.setScalar(r);
-        g.add(b);
-      }
-      g.position.set(x, 0, z);
-      g.scale.setScalar(s);
-      world.add(g);
-    };
-    tree(-2.1, WALL_Z - 1.6, 1.0);
-    tree(2.4, WALL_Z - 1.9, 0.9);
-    tree(-4.6, WALL_Z - 2.6, 1.1);
-    tree(5.0, WALL_Z - 3, 1.2);
-    tree(-9, WALL_Z - 3, 1.2);
-    tree(9.5, WALL_Z - 3.4, 1.3);
-  }
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 80), new THREE.MeshBasicMaterial({ map: groundTex }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(0, 0, -30);
+  world.add(ground);
 
   // --- the court ---
   const courtGroup = new THREE.Group();
@@ -461,21 +375,26 @@ export function createScene(canvas) {
     parent.add(m);
     return m;
   };
-  flatQuad(courtGroup, 0, 0, COLS, ROWS, basic({ color: "#e2c488" }), 0.004, 1);
+  const courtMat = basic({ color: theme.court });
+  flatQuad(courtGroup, 0, 0, COLS, ROWS, courtMat, 0.004, 1);
+  const tintMats = [];
   for (let n = 1; n <= 12; n++) {
     const { col, row } = squareToCell(n);
     const r = squareRect(n);
     const light = (col + row) % 2;
-    flatQuad(courtGroup, r.x, r.y, r.w, r.h, basic({ color: light ? "#ffffff" : "#785019", transparent: true, opacity: light ? 0.1 : 0.07 }), 0.006, 2);
+    const mat = basic({ color: light ? theme.chalk : theme.soft, transparent: true, opacity: light ? 0.1 : 0.08 });
+    mat.userData.light = Boolean(light);
+    tintMats.push(mat);
+    flatQuad(courtGroup, r.x, r.y, r.w, r.h, mat, 0.006, 2);
   }
   // Chalk lines: slightly wobbly strips, deterministic so the picture is the same every time.
+  const chalkMat = basic({ color: theme.chalk });
   {
-    const chalk = basic({ color: "#ffffff" });
     const wob = (i) => Math.sin(i * 12.9898) * 0.012;
     let k = 0;
     const strip = (x1, y1, x2, y2) => {
       const len = Math.hypot(x2 - x1, y2 - y1) + 0.08;
-      const m = new THREE.Mesh(PLANE, chalk);
+      const m = new THREE.Mesh(PLANE, chalkMat);
       m.rotation.x = -Math.PI / 2;
       m.rotation.z = y2 === y1 ? 0 : Math.PI / 2; // horizontal lines run along x, vertical along z
       m.position.set(wx((x1 + x2) / 2) + wob(k++), 0.009, wz((y1 + y2) / 2) + wob(k++));
@@ -486,7 +405,7 @@ export function createScene(canvas) {
     for (let i = 0; i <= ROWS; i++) strip(0, i, COLS, i);
     for (let i = 0; i <= COLS; i++) strip(i, 0, i, ROWS);
   }
-  // The numbers are drawn on the ground; rebuilt on resize because the font may load late.
+  // The numbers are drawn on the ground; rebuilt on resize (the font may load late) and on a theme change.
   const numbers = [];
   function buildNumbers() {
     for (const m of numbers) {
@@ -502,10 +421,10 @@ export function createScene(canvas) {
       c.textBaseline = "middle";
       c.font = `800 118px ${FONT}`;
       c.lineJoin = "round";
-      c.strokeStyle = "rgba(90,60,20,0.38)";
+      c.strokeStyle = css(theme.ink, 0.3);
       c.lineWidth = 12;
       c.strokeText(String(n), 80, 84);
-      c.fillStyle = "rgba(255,255,255,0.92)";
+      c.fillStyle = css(theme.chalk, 0.95);
       c.fillText(String(n), 80, 84);
       const r = squareRect(n);
       numbers.push(flatQuad(courtGroup, r.x + 0.2, r.y + 0.2, 0.6, 0.6, basic({ map: canvasTex(cv), transparent: true }), 0.011, 4));
@@ -583,21 +502,21 @@ export function createScene(canvas) {
     const k = pulse(time);
     if (hint === "start") {
       const r = { x: 0, y: -1.6, w: COLS, h: 1.45 };
-      quad(r.x, r.y, r.w, r.h, "#ffd60a", 0.18 + 0.15 * k, 0.012, 5);
-      outline(r, "#ffaa00", 0.6 + 0.4 * k, 0.05, 0.013, 5);
+      quad(r.x, r.y, r.w, r.h, theme.accent, 0.18 + 0.15 * k, 0.012, 5);
+      outline(r, theme.accent, 0.6 + 0.4 * k, 0.05, 0.013, 5);
       const tex = label("home", 256, 96, (c, w, h) => {
         c.font = `800 64px ${FONT}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
-        c.fillStyle = "rgba(120,70,0,0.8)";
+        c.fillStyle = css(theme.ink, 0.7);
         c.fillText("HOME", w / 2, h / 2);
       });
       putLabel(tex, 0.5, -1.55, 1, 0.375, 0.014, 5);
       return;
     }
     const r = squareRect(hint);
-    quad(r.x, r.y, r.w, r.h, "#ffd60a", 0.25 + 0.2 * k, 0.012, 5);
-    outline(r, "#ffaa00", 0.6 + 0.4 * k, 0.045, 0.013, 5);
+    quad(r.x, r.y, r.w, r.h, theme.accent, 0.28 + 0.22 * k, 0.012, 5);
+    outline(r, theme.accent, 0.7 + 0.3 * k, 0.045, 0.013, 5);
   }
 
   function drawHouses(houses) {
@@ -623,7 +542,7 @@ export function createScene(canvas) {
         c.textBaseline = "middle";
         c.lineJoin = "round";
         c.lineWidth = 9;
-        c.strokeStyle = "rgba(255,255,255,0.95)";
+        c.strokeStyle = css(theme.chalk, 0.95);
         c.strokeText(h.name, w / 2, (1 - 0.2) * hh);
         c.fillStyle = h.color;
         c.fillText(h.name, w / 2, (1 - 0.2) * hh);
@@ -633,43 +552,38 @@ export function createScene(canvas) {
   }
 
   // The red mark to throw at in a tie-break.
-  const markTex = label("mark", 128, 128, (c) => {
-    c.strokeStyle = "#e03131";
-    c.lineWidth = 10;
-    c.beginPath();
-    c.arc(64, 64, 44, 0, Math.PI * 2);
-    c.moveTo(34, 34);
-    c.lineTo(94, 94);
-    c.moveTo(94, 34);
-    c.lineTo(34, 94);
-    c.stroke();
-  });
   function drawMark(m, time) {
+    const tex = label("mark", 128, 128, (c) => {
+      c.strokeStyle = theme.danger;
+      c.lineWidth = 10;
+      c.beginPath();
+      c.arc(64, 64, 44, 0, Math.PI * 2);
+      c.moveTo(34, 34);
+      c.lineTo(94, 94);
+      c.moveTo(94, 34);
+      c.lineTo(34, 94);
+      c.stroke();
+    });
     const s = 0.38 * (1 + 0.08 * pulse(time));
-    putLabel(markTex, m.x - s / 2, m.y - s / 2, s, s, 0.015, 6);
+    putLabel(tex, m.x - s / 2, m.y - s / 2, s, s, 0.015, 6);
   }
 
+  // flash: {square, hit, t0, dur}: green for a good throw, red for a miss.
   function drawFlash(flash, time) {
     const age = (time - flash.t0) / flash.dur;
     if (age < 0 || age > 1) return;
     const r = squareRect(flash.square);
-    const m = /rgba?\(([^)]*)\)/.exec(flash.color);
-    const rgb = m
-      ? m[1]
-          .split(",")
-          .slice(0, 3)
-          .map((v) => v.trim())
-          .join(",")
-      : "255,255,255";
-    quad(r.x, r.y, r.w, r.h, `rgb(${rgb})`, 0.55 * (1 - age), 0.016, 6);
+    quad(r.x, r.y, r.w, r.h, flash.hit ? theme.accent : theme.danger, 0.55 * (1 - age), 0.016, 6);
   }
 
   // --- the stone ---
-  const stone = new THREE.Mesh(SPHERE, new THREE.MeshLambertMaterial({ color: "#7a838b" }));
+  const stoneMat = new THREE.MeshLambertMaterial({ color: stoneColor(theme) });
+  const stone = new THREE.Mesh(SPHERE, stoneMat);
   stone.scale.set(0.085, 0.07, 0.085);
   stone.visible = false;
   world.add(stone);
-  const stoneShadow = new THREE.Mesh(new THREE.CircleGeometry(1, 20), basic({ color: 0x281908, transparent: true, opacity: 0.3 }));
+  const stoneShadowMat = basic({ color: theme.ink, transparent: true, opacity: 0.3 });
+  const stoneShadow = new THREE.Mesh(new THREE.CircleGeometry(1, 20), stoneShadowMat);
   stoneShadow.rotation.x = -Math.PI / 2;
   stoneShadow.renderOrder = 6;
   stoneShadow.visible = false;
@@ -685,45 +599,49 @@ export function createScene(canvas) {
         world.remove(s.fig.root);
         s.fig.dispose();
       }
-      s = { key, fig: figure(style) };
+      s = { key, fig: figure(style, theme) };
       world.add(s.fig.root);
       slots[i] = s;
     }
     return s.fig;
   }
 
-  // The children watching from beside the wall (re-spaced when the window changes).
-  const watchers = new THREE.Group();
-  world.add(watchers);
-  const WATCH = [
-    [-1, 3, 0.62],
-    [-0.62, 1, 0.52],
-    [0.62, 4, 0.52],
-    [1, 2, 0.62],
-  ];
-  function placeWatchers(edge) {
-    if (!watchers.children.length) {
-      for (const [side, si, sc] of WATCH) {
-        const f = figure(STOCK[si % STOCK.length].style);
-        f.apply({ back: false });
-        f.root.scale.setScalar(sc);
-        f.root.userData.side = side;
-        watchers.add(f.root);
-      }
-    }
-    for (const f of watchers.children) f.position.set(f.userData.side * edge, 0, WALL_Z + 0.9);
+  // --- theme: repaint everything that takes its colour from css/theme.css ---
+  function applyTheme(next) {
+    theme = next;
+    paintGround();
+    courtMat.color.set(theme.court);
+    chalkMat.color.set(theme.chalk);
+    for (const m of tintMats) m.color.set(m.userData.light ? theme.chalk : theme.soft);
+    stoneMat.color.copy(stoneColor(theme));
+    stoneShadowMat.color.set(theme.ink);
+    for (const t of labelCache.values()) t.dispose();
+    labelCache.clear();
+    // Children are rebuilt with the new shoes, eyes and shadows on the next frame.
+    slots.forEach((s) => {
+      if (!s) return;
+      world.remove(s.fig.root);
+      s.fig.dispose();
+    });
+    slots.length = 0;
+    buildNumbers();
   }
+  paintGround();
+  watchTheme(applyTheme);
 
   // --- the camera ---
   let W = 1;
   let H = 1;
-  const PITCH = (31 * Math.PI) / 180;
+  let pitch = (31 * Math.PI) / 180; // how far the camera looks down (the layout can change it)
   const TARGET = new THREE.Vector3(0, 0, -ROWS / 2 + 0.4);
   const v3 = new THREE.Vector3();
+  // Where on the screen the court sits (set by main.js for each screen and window size):
+  // the y of its near and far edge, the x of its middle, the widest a cell may be, and the camera tilt (degrees).
+  let layout = null;
 
   function aim(dist) {
     camera.clearViewOffset();
-    camera.position.set(TARGET.x, TARGET.y + Math.sin(PITCH) * dist, TARGET.z + Math.cos(PITCH) * dist);
+    camera.position.set(TARGET.x, TARGET.y + Math.sin(pitch) * dist, TARGET.z + Math.cos(pitch) * dist);
     camera.lookAt(TARGET);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
@@ -734,18 +652,18 @@ export function createScene(canvas) {
   };
   function fitCamera() {
     camera.aspect = W / H;
-    // Like the 2D layout: the court's near edge sits at 80% of the height, its far edge at 30%,
-    // and a wide window keeps the phone's proportions.
-    const wantSpan = H * 0.5;
-    const maxCellPx = Math.min((W * 0.8) / COLS, H * 0.2);
+    const L = layout ?? { nearY: H * 0.8, farY: H * 0.3, cx: W / 2, maxCell: Math.min((W * 0.8) / COLS, H * 0.2) };
+    pitch = ((L.pitch ?? 31) * Math.PI) / 180;
+    const wantSpan = L.nearY - L.farY;
+    const maxCell = L.maxCell ?? Math.min((W * 0.8) / COLS, H * 0.2);
     const tooBig = (d) => {
       aim(d);
       const span = screenOf(0, 0, 0).y - screenOf(0, 0, -ROWS).y;
       const cell = screenOf(1, 0, 0).x - screenOf(0, 0, 0).x;
-      return span > wantSpan || cell > maxCellPx;
+      return span > wantSpan || cell > maxCell;
     };
     let lo = 3;
-    let hi = 60;
+    let hi = 80;
     for (let i = 0; i < 40; i++) {
       const mid = (lo + hi) / 2;
       if (tooBig(mid)) lo = mid;
@@ -753,7 +671,8 @@ export function createScene(canvas) {
     }
     aim(hi);
     const nearY = screenOf(0, 0, 0).y;
-    camera.setViewOffset(W, H, 0, nearY - H * 0.8, W, H);
+    const midX = screenOf(0, 0, -ROWS / 2).x;
+    camera.setViewOffset(W, H, midX - L.cx, nearY - L.nearY, W, H);
     camera.updateMatrixWorld();
   }
 
@@ -787,10 +706,13 @@ export function createScene(canvas) {
     overlayMesh.position.set(W / 2, H / 2, 0);
     fitCamera();
     buildNumbers();
-    // Keep the watching children on screen, beside the wall.
-    const wallY = screenOf(0, 0, WALL_Z + 0.9).y;
-    const left = unprojectAt(26, wallY, WALL_Z + 0.9);
-    placeWatchers(Math.max(1.2, Math.min(2.6, COLS / 2 - left.x - 0.3)));
+  }
+
+  // layout: {nearY, farY, cx, maxCell?}; ground: show the 3D ground (off on the menu, where the page paints a hill)
+  function setLayout(next, opts = {}) {
+    layout = next;
+    if (opts.ground !== undefined) ground.visible = opts.ground;
+    if (W > 1) fitCamera();
   }
 
   // Court (x,y in cell units) to screen px; `scale` is the px width of one cell there.
@@ -800,20 +722,15 @@ export function createScene(canvas) {
     return { x: p.x, y: p.y, scale: Math.abs(q.x - p.x) };
   }
 
-  // Screen px to court cell units, on the ground (or on the plane z = `atZ`).
-  function unprojectAt(sx, sy, atZ = null) {
+  // Screen px to court cell units, on the ground.
+  function unproject(sx, sy) {
     v3.set((sx / W) * 2 - 1, 1 - (sy / H) * 2, 0.5).unproject(camera);
     const o = camera.position;
     const d = v3.sub(o);
-    if (atZ !== null) {
-      const t = (atZ - o.z) / d.z;
-      return { x: o.x + d.x * t + COLS / 2, y: -atZ };
-    }
     if (d.y >= -1e-6) return { x: 0, y: 1e3 }; // above the horizon
     const t = -o.y / d.y;
     return { x: o.x + d.x * t + COLS / 2, y: -(o.z + d.z * t) };
   }
-  const unproject = (sx, sy) => unprojectAt(sx, sy);
 
   // What a tap means: a square number, "start" (the ground below the court), or null.
   function hitSquare(sx, sy) {
@@ -827,21 +744,21 @@ export function createScene(canvas) {
   function drawAim(a, time) {
     const c = octx;
     const from = project(a.origin.x, a.origin.y);
-    c.strokeStyle = "rgba(90,50,10,0.8)";
+    c.strokeStyle = css(theme.shade, 0.85);
     c.lineWidth = 4;
     c.lineCap = "round";
     c.beginPath();
     c.moveTo(from.x, from.y);
     c.lineTo(a.fx, a.fy);
     c.stroke();
-    c.fillStyle = "rgba(255,255,255,0.8)";
+    c.fillStyle = css(theme.chalk, 0.85);
     c.beginPath();
     c.arc(a.fx, a.fy, 12, 0, Math.PI * 2);
     c.fill();
 
     const to = project(a.land.x, a.land.y);
     c.setLineDash([2, 9]);
-    c.strokeStyle = "rgba(60,30,0,0.85)";
+    c.strokeStyle = css(theme.ink, 0.85);
     c.lineWidth = 4;
     c.beginPath();
     c.moveTo(from.x, from.y);
@@ -849,7 +766,7 @@ export function createScene(canvas) {
     c.stroke();
     c.setLineDash([]);
     const r = to.scale * 0.1 * (1 + 0.1 * pulse(time));
-    c.strokeStyle = "#e03131";
+    c.strokeStyle = theme.danger;
     c.lineWidth = 3;
     c.beginPath();
     c.ellipse(to.x, to.y, r, r * 0.7, 0, 0, Math.PI * 2);
@@ -913,5 +830,5 @@ export function createScene(canvas) {
     }
   }
 
-  return { resize, draw, project, unproject, hitSquare };
+  return { resize, draw, project, unproject, hitSquare, setLayout };
 }

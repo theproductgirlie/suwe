@@ -2,7 +2,12 @@
 // Needs the dev server running (npm run serve). Screenshots go to shots/.
 import { launch, sleep } from "./cdp.mjs";
 
-const b = await launch({ url: "http://localhost:5173/?debug" });
+// Software WebGL, so the 3D scene runs in a headless browser without a GPU.
+const b = await launch({
+  url: "http://localhost:5173/?debug",
+  scale: 1,
+  args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
+});
 const H = 844;
 const ev = (js) => b.evaluate(js);
 const fails = [];

@@ -11,9 +11,16 @@ const check = (ok, msg) => {
 const FROM = Number(process.env.FLOW_FROM ?? 0);
 let sessionNo = 0;
 
+// Software WebGL, so the 3D scene runs in a headless browser without a GPU.
+const GL = ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
+
 async function session(query, fn) {
   if (sessionNo++ < FROM) return;
-  const b = await launch({ url: `http://localhost:5173/?debug${query}` });
+    const b = await launch({
+    url: `http://localhost:5173/?debug${query}`,
+    scale: 1,
+    args: GL,
+  });
   const ev = (js) => b.evaluate(js);
   await sleep(300);
   await ev(`window.confirm = () => true`);
@@ -54,7 +61,7 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
   check((await ev(`document.querySelectorAll('.seat').length`)) === 1, "setup starts with 1 player (solo), not 2");
-  check((await ev(`document.querySelector('.chip.on').textContent`)) === "1 player", "the 1 player option is selected");
+  check((await ev(`document.querySelector('.chip.on').textContent`)).startsWith("1"), "the 1 player option is selected");
   // The start button has the same title whatever the player count.
   for (const n of [1, 2, 3, 4]) {
     await pick(ev, n);
@@ -75,7 +82,7 @@ await session("", async (b, ev) => {
   check(names[0] === "Test Player" && names[2] === "Bola" && names[1] === "Player 2", `names typed in setup reach the game (${names.join(", ")})`);
   const colors = await ev(`__suwe.game.players.map(p => p.color)`);
   check(new Set(colors).size === 4, "each player has a different house colour");
-  check((await ev(`document.querySelectorAll('.chip-p').length`)) === 4, "scoreboard shows all 4 players");
+  check((await ev(`document.querySelectorAll('.pcard').length`)) === 4, "scoreboard shows all 4 players");
 });
 
 // ---- 2. Solo: no "your turn", no passing ----
@@ -86,12 +93,12 @@ await session("", async (b, ev) => {
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
   check((await ev(`document.getElementById('toast').textContent`)) === "Oya, throw!", "solo says 'Oya, throw!' not 'your turn'");
-  check((await ev(`document.getElementById('turn').textContent`)).startsWith("Attempt 1"), "solo shows Attempt, not Turn");
+  check((await ev(`document.getElementById('banner').textContent`)).includes("Attempt 1"), "solo shows Attempt, not Turn");
   await badThrow(b, ev);
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 0 && (await ev(`__suwe.game.turnNo`)) === 2, "solo: after a miss it is still you, attempt 2");
   check((await ev(`document.getElementById('toast').textContent`)) === "Throw again!", "solo wording after a miss");
-  check((await ev(`document.getElementById('turn').textContent`)).startsWith("Attempt 2"), "attempt counter went up");
+  check((await ev(`document.getElementById('banner').textContent`)).includes("Attempt 2"), "attempt counter went up");
 });
 
 // ---- 3. Versus computer (easy): it plays by itself after you miss ----
@@ -106,8 +113,8 @@ await session("", async (b, ev) => {
   await badThrow(b, ev);
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 1, "turn passed to the computer");
-  const hint = await ev(`document.getElementById('hint').textContent`);
-  check(hint.endsWith("is playing"), `hint says the computer is playing ("${hint}")`);
+  const hint = await ev(`document.getElementById('watch-title').textContent`);
+  check(/ is (throwing|hopping)/.test(hint) && (await ev(`document.getElementById('watch-card').hidden`)) === false, `the Watching card says the computer is playing ("${hint}")`);
   // The computer should act and eventually hand the turn back, with nobody touching the screen.
   let back = false;
   for (let i = 0; i < 600 && !back; i++) {
@@ -121,12 +128,12 @@ await session("", async (b, ev) => {
 
 // ---- 4. Lives ----
 await session("", async (b, ev) => {
-  check((await ev(`document.querySelectorAll('#menu-lives .row span:not(.off)').length`)) === 5, "menu shows 5 full hearts");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("5 of 5 lives"), "home shows 5 of 5 lives");
   for (let i = 0; i < 5; i++) await ev(`__suwe.spendLife()`);
   await sleep(1200);
-  check((await ev(`document.querySelectorAll('#menu-lives .row span:not(.off)').length`)) === 0, "hearts all empty after 5 losses");
-  const note = await ev(`document.querySelector('#menu-lives small').textContent`);
-  check(/^Next life in (29:\d\d|30:00)$/.test(note), `countdown shown (${note})`);
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("0 of 5 lives"), "lives all gone after 5 losses");
+  const note = await ev(`document.getElementById('profile-lives').textContent`);
+  check(/\+1 in (29:\d\d|30:00)$/.test(note), `countdown shown (${note})`);
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
   check((await ev(`document.getElementById('gate').hidden`)) === false, "no lives: Play is blocked");
@@ -141,10 +148,10 @@ await session("", async (b, ev) => {
   await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('1')).click()`);
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
-  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("5 lives"), "scoreboard shows 5 lives");
+  check((await ev(`document.querySelectorAll('.pcard .hearts .ico:not(.off)').length`)) === 5, "scoreboard shows 5 lives");
   await badThrow(b, ev);
   await idle(ev);
-  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("4 lives"), "a failed turn costs a life (4 lives)");
+  check((await ev(`document.querySelectorAll('.pcard .hearts .ico:not(.off)').length`)) === 4, "a failed turn costs a life (4 lives)");
   check((await ev(`__suwe.lives.lives`)) === 4, "your saved hearts dropped too");
   for (let i = 0; i < 4; i++) {
     await badThrow(b, ev);
@@ -175,7 +182,7 @@ await session("", async (b, ev) => {
   await idle(ev);
   check((await ev(`__suwe.game.players[0].out`)) === true, "you are out");
   check((await ev(`__suwe.game.current`)) === 1 && (await ev(`__suwe.game.over`)) === false, "player 2 plays on, match continues");
-  check((await ev(`document.querySelectorAll('.chip-p.out').length`)) === 1, "your chip is greyed out");
+  check((await ev(`document.querySelectorAll('.pcard.out').length`)) === 1, "your chip is greyed out");
   await badThrow(b, ev);
   await idle(ev);
   check((await ev(`__suwe.game.current`)) === 1, "player 2 keeps the turns, you are skipped");
@@ -262,7 +269,7 @@ await session("", async (b, ev) => {
 
 // ---- 8d. Desktop: sensible proportions and a row of cards ----
 if (!FROM) {
-  const b = await launch({ url: "http://localhost:5173/?debug", width: 1280, height: 800, scale: 1, mobile: false });
+  const b = await launch({ url: "http://localhost:5173/?debug", width: 1280, height: 800, scale: 1, mobile: false, args: GL });
   const ev = (js) => b.evaluate(js);
   await sleep(400);
   await ev(`document.getElementById('play').click()`);
@@ -329,7 +336,7 @@ await session("", async (b, ev) => {
   await sleep(500);
   await b.tap(30, 400); // any real tap lets the browser start sound
   await sleep(300);
-  check((await ev(`document.getElementById('hint').textContent`)).startsWith("Ra Ile!"), "hint explains Ra Ile");
+  check((await ev(`document.getElementById('move-kind').textContent`)) === "Ra Ile", "the move card explains Ra Ile");
   const o = { x: 0.95, y: -0.6 };
   const dx = 1.5 - o.x, dy = 3.5 - o.y; // square 9 is the right column, 4th row up
   const angle = Math.atan2(dx, dy), power = Math.hypot(dx, dy) / 8;
@@ -348,7 +355,7 @@ await session("", async (b, ev) => {
   await idle(ev);
   await sleep(300);
   check((await ev(`JSON.stringify(__suwe.game.owners[8])`)) === '"a"', "square 9 now belongs to Ada");
-  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("1 house"), "scoreboard shows 1 house");
+  check((await ev(`document.querySelector('.pcard').textContent`)).includes("1 house"), "scoreboard shows 1 house");
   await b.shot("shots/h2-house-on-court.png");
 });
 
@@ -401,7 +408,7 @@ await session("", async (b, ev) => {
 // ---- 12. Signed-in start.ng player keeps their own outfit; shows a sash in the house colour ----
 await session("&signedin", async (b, ev) => {
   check((await ev(`document.getElementById('player-name').textContent`)) === "Abimbola", "card shows the start.ng character's name");
-  check((await ev(`document.getElementById('player-account').textContent`)) === "@abimbola", "card shows @account");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("lives"), "card shows the lives line");
   await ev(`document.getElementById('play').click()`);
   await sleep(200);
   check((await ev(`document.querySelector('.seat .cname').textContent`)) === "Abimbola", "seat 1 uses the start.ng name");
@@ -436,7 +443,7 @@ if (!FROM) {
 
 // ---- 14. Sound: starts on the first tap, music runs, toggles work and are remembered ----
 if (!FROM) {
-  const b = await launch({ url: "http://localhost:5173/?debug" });
+  const b = await launch({ url: "http://localhost:5173/?debug", scale: 1, args: GL });
   const ev = (js) => b.evaluate(js);
   await sleep(400);
   check((await ev(`__suwe.audio.state()`)) === "none", "no sound before the first tap (browser rule)");
@@ -460,14 +467,14 @@ if (!FROM) {
   await sleep(600);
   const s2 = await ev(`__suwe.audio.musicSteps()`);
   check(s1 === s2, "turning music off stops the beat");
-  check((await ev(`document.getElementById('opt-music').textContent`)) === "Music: Off", "button shows Music: Off");
+  check((await ev(`document.getElementById('opt-music').getAttribute('aria-checked')`)) === "false", "button shows Music: Off");
   await ev(`document.getElementById('opt-voice').click()`);
   // Remembered after a reload.
   await ev(`location.reload()`);
   await sleep(1500);
-  check((await ev(`document.getElementById('opt-music').textContent`)) === "Music: Off", "Music: Off is remembered after reload");
-  check((await ev(`document.getElementById('opt-voice').textContent`)) === "Voice lines: On", "Voice lines: On is remembered too");
-  check((await ev(`document.getElementById('opt-sfx').textContent`)) === "Sound effects: On", "sound effects still on");
+  check((await ev(`document.getElementById('opt-music').getAttribute('aria-checked')`)) === "false", "Music: Off is remembered after reload");
+  check((await ev(`document.getElementById('opt-voice').getAttribute('aria-checked')`)) === "true", "Voice lines: On is remembered too");
+  check((await ev(`document.getElementById('opt-sfx').getAttribute('aria-checked')`)) === "true", "sound effects still on");
   // In a match, the Sound button flips everything.
   await ev(`document.getElementById('opt-music').click()`); // music back on
   await ev(`document.getElementById('play').click()`);
@@ -498,7 +505,7 @@ await session("", async (b, ev) => {
   await ev(`document.querySelector('.tut-nav .big').click()`);
   await ev(`document.querySelector('.tut-nav .big').click()`);
   check((await ev(`document.getElementById('setup').hidden`)) === false, "Try it now opens the player setup");
-  check((await ev(`document.querySelector('.chip.on').textContent`)) === "1 player", "...set to solo practice");
+  check((await ev(`document.querySelector('.chip.on').textContent`)).startsWith("1"), "...set to solo practice");
   await ev(`document.querySelector('#setup .setup-back').click()`);
   check((await ev(`document.getElementById('howto-new').hidden`)) === true, "the New badge is gone after viewing");
   check(b.problems.length === 0, "tutorial animations run without errors");
@@ -511,7 +518,7 @@ await session("", async (b, ev) => {
   check((await ev(`document.getElementById('settings').hidden`)) === false, "Settings opens");
   check((await ev(`document.getElementById('discard-save').hidden`)) === true, "no saved match to delete yet");
   await ev(`document.getElementById('opt-sfx').click()`);
-  check((await ev(`document.getElementById('opt-sfx').textContent`)) === "Sound effects: Off", "a sound switch flips");
+  check((await ev(`document.getElementById('opt-sfx').getAttribute('aria-checked')`)) === "false", "a sound switch flips");
   await ev(`document.getElementById('settings-back').click()`);
   check((await ev(`document.getElementById('menu').hidden`)) === false, "Back returns to the menu");
 });
@@ -547,7 +554,7 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('continue').click()`);
   await sleep(300);
   check((await ev(`JSON.stringify(__suwe.game)`)) === before, "the resumed match is identical, mid-hop");
-  check((await ev(`document.getElementById('hint').textContent`)).length > 0 && (await ev(`__suwe.game.phase`)) === "hop", "and it is playable: waiting for the next hop");
+  check((await ev(`document.getElementById('move-desc').textContent`)).length > 0 && (await ev(`__suwe.game.phase`)) === "hop", "and it is playable: waiting for the next hop");
   check((await ev(`__suwe.saved.elapsed >= 0`)) === true, "match time is kept");
   // Pausing keeps the save; starting a new match asks first.
   await ev(`document.getElementById('menu-btn').click()`); // Menu opens the pause drawer...
@@ -618,10 +625,10 @@ await session("&signedin", async (b, ev) => {
   })`);
   await ev(`document.getElementById('open-lb').click()`);
   await sleep(300);
-  check((await ev(`document.querySelectorAll('#lb-rows tr').length`)) === 2, "leaderboard lists the players");
-  check((await ev(`document.querySelector('#lb-rows tr').textContent`)).includes("Trini") && (await ev(`document.querySelector('#lb-rows tr').textContent`)).includes("91%"), "with houses, accuracy and name");
-  check((await ev(`document.querySelectorAll('#lb-rows tr.me').length`)) === 1 && (await ev(`document.querySelector('#lb-rows tr.me').textContent`)).includes("Abimbola"), "my own row is highlighted");
-  check((await ev(`document.querySelector('#lb-rows tr.me').textContent`)).includes("8:41"), "match time is shown as m:ss");
+  check((await ev(`document.querySelectorAll('.lb-row').length`)) === 2, "leaderboard lists the players");
+  check((await ev(`document.querySelector('.lb-row').textContent`)).includes("Trini") && (await ev(`document.querySelector('.lb-row').textContent`)).includes("91%"), "with houses, accuracy and name");
+  check((await ev(`document.querySelectorAll('.lb-row.me').length`)) === 1 && (await ev(`document.querySelector('.lb-row.me').textContent`)).includes("Abimbola"), "my own row is highlighted");
+  check((await ev(`document.querySelector('.lb-row.me').textContent`)).includes("8:41"), "match time is shown as m:ss");
   await ev(`window.__sent.length = 0`);
   // Finish a match against a Hard computer: 7 houses v 4, last square decides.
   const finish = async (level, expectText) => {
@@ -710,15 +717,15 @@ await session("", async (b, ev) => {
     window.__suwe.load(s);
   })()`);
   const paused = () => ev(`document.body.classList.contains('paused')`);
-  const drawerLeft = () => ev(`Math.round(document.getElementById('pause-menu').getBoundingClientRect().left)`);
+  const drawerTop = () => ev(`Math.round(document.getElementById('pause-menu').getBoundingClientRect().top)`);
 
   // It is the computer's turn: opening the menu straight away must hold it back.
   await setup2("s.current = 1;");
   await ev(`document.getElementById('menu-btn').click()`);
   await sleep(500);
   check((await paused()) === true, "Menu pauses the match");
-  check((await ev(`document.getElementById('menu-btn').textContent`)) === "Close", "the Menu button now says Close");
-  check((await drawerLeft()) < 390, `the menu has slid in from the right (left edge ${await drawerLeft()}px of 390)`);
+  check((await paused()) === true, "the match is paused");
+  check((await drawerTop()) < 844, `the pause sheet has slid up (top edge ${await drawerTop()}px of 844)`);
   const frozen = await ev(`JSON.stringify(__suwe.game)`);
   await sleep(3500);
   check((await ev(`JSON.stringify(__suwe.game)`)) === frozen, "while paused, the computer does not play");
@@ -726,8 +733,8 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('menu-btn').click()`);
   await sleep(500);
   check((await paused()) === false, "pressing Menu again closes it");
-  check((await drawerLeft()) >= 390, "...and it slides back out of view");
-  check((await ev(`document.getElementById('menu-btn').textContent`)) === "Menu", "the button says Menu again");
+  check((await drawerTop()) >= 844, "...and it slides back out of view");
+  check((await paused()) === false, "and it is running again");
   await sleep(3500);
   check((await ev(`__suwe.game.players[1].stats.throws`)) > 0, "after closing, the computer plays again");
 
@@ -747,7 +754,7 @@ await session("", async (b, ev) => {
   await sleep(300);
   check((await ev(`JSON.stringify(__suwe.game)`)) === before, "while paused, throwing does nothing");
   // The dark area behind the menu also closes it.
-  await b.tap(40, 500);
+  await b.tap(195, 60); // above the sheet
   await sleep(400);
   check((await paused()) === false, "tapping the dark area closes the menu");
   // Escape toggles.
@@ -772,7 +779,7 @@ await session("", async (b, ev) => {
   await ev(`document.getElementById('menu-btn').click()`);
   await sleep(300);
   await ev(`document.getElementById('pause-music').click()`);
-  check((await ev(`document.getElementById('pause-music').textContent`)) === "Music: Off", "sound switches work inside the pause menu");
+  check((await ev(`document.getElementById('pause-music').getAttribute('aria-checked')`)) === "false", "sound switches work inside the pause menu");
   await ev(`document.getElementById('pause-howto').click()`);
   await sleep(300);
   check((await ev(`document.getElementById('howto').hidden`)) === false, "How to play opens from the pause menu");

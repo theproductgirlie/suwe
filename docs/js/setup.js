@@ -6,6 +6,7 @@
 
 import { drawCharacter, normalizeStyle, STOCK } from "./render/character.js";
 import { LEVELS } from "./engine/ai.js";
+import { icon } from "./ui.js";
 
 // The computer's level, shown as stars instead of a label.
 export const levelStars = (level) => ({ easy: "★☆☆", medium: "★★☆", hard: "★★★" })[level] ?? "★★☆";
@@ -89,51 +90,70 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
 
   function readyText() {
     const cpu = seats.filter((s) => s.kind === "computer").length;
-    if (count === 1) return "Solo practice. Just you and the stone.";
-    if (count === 2) return cpu ? "1 person and the computer ready to jump" : "2 people ready to jump";
-    return `${count} people ready to jump · computers only play 1 on 1`;
+    if (count === 1) return "Solo practice, just you and the stone";
+    if (count === 2) return cpu ? "1 person and the computer ready to jump" : "2 players ready to jump";
+    return `${count} players ready to jump`;
   }
+
+  const COUNT_LABELS = ["solo", "or vs CPU", "players", "players"];
 
   function render() {
     ensureSeats();
     root.replaceChildren();
 
-    const back = el("button", "setup-back", "‹  Back");
+    const back = el("button", "setup-back");
     back.type = "button";
+    back.setAttribute("aria-label", "Back");
     back.onclick = onBack;
 
-    root.append(
-      back,
-      el("h2", "setup-title", "Who\u2019s playing?"),
-      el("p", "setup-sub", "Choose your crew. Everybody gets their own colour."),
-    );
-
-    const counts = el("div", "chips");
+    const head = el("div", "setup-head");
+    const titles = el("div", "page-head");
+    titles.append(el("h2", "setup-title", "Who\u2019s playing?"), el("p", "setup-sub", "Everybody gets their own colour"));
+    const counts = el("div", "tabs");
     for (let n = 1; n <= 4; n++) {
-      const b = el("button", n === count ? "chip on" : "chip", n === 1 ? "1 player" : `${n} players`);
+      const b = el("button", n === count ? "chip on" : "chip");
       b.type = "button";
+      b.append(el("b", "", String(n)), el("span", "", COUNT_LABELS[n - 1]));
       b.onclick = () => {
         count = n;
         render();
       };
       counts.append(b);
     }
-    root.append(counts);
+    head.append(titles, counts);
+
+    const note = el("p", "setup-note");
+    note.append(icon("info", 22), document.createTextNode("Pass and play on one phone. Want the computer? Pick 2."));
 
     const list = el("div", "seats");
     list.style.setProperty("--n", String(count));
     seats.forEach((seat, i) => list.append(seatCard(seat, i)));
-    root.append(list);
 
-    root.append(el("p", "ready", readyText()));
+    // The bar stays at the bottom: who is ready, and Start.
+    const bar = el("div", "setup-bar");
+    const ready = el("div", "ready");
+    const dots = el("span", "color-dots");
+    for (const seat of seats) {
+      const d = document.createElement("i");
+      d.style.background = seat.color;
+      dots.append(d);
+    }
+    const text = el("div", "ready-text");
+    text.append(el("span", "", readyText()));
+    const bn = el("p", "bar-note");
+    bn.append(icon("info", 18), document.createTextNode("Pass and play on one screen. Want the computer? Pick 2 players."));
+    text.append(bn);
+    ready.append(dots, text);
     const go = el("button", "big go", "Start match");
     go.type = "button";
     go.onclick = start;
-    root.append(go);
+    bar.append(ready, go);
+
+    root.append(back, head, note, list, bar);
   }
 
   function seatCard(seat, i) {
-    const card = el("div", "seat");
+    const card = el("div", i === 0 ? "seat me" : "seat");
     card.style.setProperty("--c", seat.color);
 
     const head = el("div", "seat-head");
@@ -150,19 +170,15 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
       nextChar(i);
       render();
     };
-    head.append(face, el("span", "badge", `P${i + 1}`));
-    if (i === 0) head.append(el("span", "tag", "You"));
-    else if (seat.kind === "computer") {
-      const t = el("span", "tag level", levelStars(seat.level));
-      t.title = `${seat.level[0].toUpperCase()}${seat.level.slice(1)} computer`;
-      head.append(t);
-    }
+    const badgeText = i === 0 ? "P1 \u00b7 You" : `P${i + 1}`;
+    head.append(face, el("span", "badge", badgeText));
 
     const body = el("div", "seat-body");
+    body.append(el("span", "badge", badgeText));
 
     if (i === 0) {
       // Player 1 is the start.ng player: their own name, not editable.
-      body.append(el("label", "lbl", "Playing as"), el("div", "cname", getMe().name));
+      body.append(el("label", "lbl", "Signed in as"), el("div", "cname", getMe().name));
     } else if (seat.kind === "person") {
       body.append(el("label", "lbl", "Name"));
       const input = el("input", "name");
@@ -175,7 +191,11 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
       input.oninput = () => (seat.name = input.value);
       body.append(input);
     } else {
-      body.append(el("div", "cname", charOf(seat).name));
+      const cn = el("div", "cname", charOf(seat).name);
+      const tag = el("span", "tag level", levelStars(seat.level));
+      tag.title = `${seat.level[0].toUpperCase()}${seat.level.slice(1)} computer`;
+      cn.append(tag);
+      body.append(cn);
     }
 
     // Person or Computer: only the second seat of a 2-player match can be a computer.
@@ -216,6 +236,7 @@ export function createSetup(root, { getMe, onStart, onBack, say = () => {} }) {
       const d = el("button", `dot${seat.color === color ? " on" : ""}${owner >= 0 ? " taken" : ""}`);
       d.type = "button";
       d.style.background = color;
+      d.style.setProperty("--cc", color);
       d.setAttribute("aria-label", owner >= 0 ? `Colour used by player ${owner + 1}` : "House colour");
       if (owner >= 0) {
         d.textContent = `P${owner + 1}`;

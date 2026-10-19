@@ -7,9 +7,6 @@ import { THROW_ORIGIN, TIE_MARK } from "./engine/game.js";
 const lerp = (a, b, p) => a + (b - a) * p;
 const easeOut = (p) => 1 - (1 - p) * (1 - p);
 
-const GREEN = "rgba(47,158,68,A)";
-const RED = "rgba(224,49,49,A)";
-
 // Voice lines, as playful text bubbles.
 const FAIL_LINES = {
   line_stone: "No match line o!",
@@ -26,7 +23,7 @@ const spot = (at) => (at === "start" ? { x: START_POINT.x, y: START_POINT.y } : 
 // Feet a little toward the near edge so the body sits in the square.
 const stand = (c) => ({ x: c.x, y: c.y - 0.15 });
 
-export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, sfx = () => {} }) {
+export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, onFail = () => {}, sfx = () => {} }) {
   const view = {
     hint: null,
     stone: { x: THROW_ORIGIN.x, y: THROW_ORIGIN.y, h: 0 },
@@ -43,6 +40,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
   };
   const pose = view.hero.pose;
   const queue = [];
+  let released = false; // the player pressed OK on the missed card
   let cur = null;
   let carry = null; // end time of the task that just finished
 
@@ -160,7 +158,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
             },
             end() {
               view.stone = { x: e.to.x, y: e.to.y, h: 0 };
-              if (e.square) onFlash({ square: e.square, color: e.hit ? GREEN : RED });
+              if (e.square) onFlash({ square: e.square, hit: e.hit });
             },
           });
           if (e.hit) queue.push({ dur: 1, run() {}, end: () => say("Now hop!", { tone: "good" }) });
@@ -241,7 +239,8 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
               pose.tilt = dir * 0.9 * easeOut(p);
             },
           });
-          queue.push(wait(450));
+          // The "missed" card: it stays up for 2 seconds, or until the player says OK (release()).
+          queue.push({ dur: 2000, run() {}, gate: true, start: () => ((released = false), onFail(e)) });
           break;
         }
         case "course_done":
@@ -268,7 +267,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
         case "backthrow":
           queue.push(
             flightTask(e.to, 170, 800, () => {
-              if (e.square) onFlash({ square: e.square, color: e.claimed ? GREEN : RED });
+              if (e.square) onFlash({ square: e.square, hit: Boolean(e.claimed) });
             }),
           );
           if (!e.claimed) {
@@ -356,7 +355,7 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
         cur.start?.();
         if (cur.sfxStart) sfx(cur.sfxStart);
       }
-      const p = Math.min(1, (now - cur.t0) / cur.dur);
+      const p = cur.gate && released ? 1 : Math.min(1, (now - cur.t0) / cur.dur);
       cur.run(p);
       if (p < 1) return;
       cur.end?.();
@@ -376,6 +375,27 @@ export function createDirector({ style, say, onFlash, onTurn, onOver, onHouse, s
       return Boolean(cur) || queue.length > 0;
     },
     home,
+    // The player pressed OK on the missed card: carry on now.
+    release() {
+      released = true;
+    },
+    // Milliseconds left on the missed card (null when it is not showing).
+    gateLeft(now) {
+      return cur?.gate ? Math.max(0, cur.dur - (now - cur.t0)) : 0;
+    },
+    // Show everything that is queued at once (used to skip the computer's turn).
+    finish() {
+      for (let guard = 0; guard < 600 && (cur || queue.length); guard++) {
+        if (!cur) {
+          cur = queue.shift();
+          cur.start?.();
+        }
+        cur.run(1);
+        cur.end?.();
+        cur = null;
+      }
+      carry = null;
+    },
     // A fresh match: no houses, no mark.
     reset() {
       view.houses = [];

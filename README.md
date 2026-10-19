@@ -10,6 +10,9 @@ Frontend only: the playable game is the static site in `docs/`.
   matches save, resume and replay exactly. Includes the computer players (`ai.js`).
 - `docs/js/render/` drawing. `scene.js` renders with three.js (vendored in `docs/js/vendor/`); `scene-2d.js` is the original Canvas 2D
   renderer, kept as the fallback when WebGL is missing and for comparison (`?renderer=2d`). `character.js` draws the characters from start.ng style fields.
+- `docs/css/theme.css` the one place the look is set ("Golden hour"): change a variable there, or set another theme on `<html>`,
+  and every screen, the 3D court, the ground and the children's shoes, eyes and stone follow (`docs/js/theme.js` reads it for the scene).
+  The six player colours are data, not theme, so they stay the same.
 - `docs/js/director.js` turns engine events into animation and sound.
 - `docs/js/audio.js` music and effects, synthesised with Web Audio (no audio files).
 - `docs/js/tutorial.js`, `setup.js`, `main.js` the How to Play slides, the "Who's playing?" screen, and the app.
