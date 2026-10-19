@@ -301,7 +301,8 @@ function renderBoard() {
       const name = document.createElement("b");
       name.textContent = p.name;
       const line = document.createElement("span");
-      line.textContent = p.out ? "OUT" : `♥${p.lives} ⌂${p.houses.length} Sq${p.target}`;
+      const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+      line.textContent = p.out ? "OUT" : `${plural(p.lives, "life").replace("lifes", "lives")} · ${plural(p.houses.length, "house")}`;
       if (p.ai) {
         const tag = document.createElement("em");
         tag.className = "ai";
@@ -310,6 +311,11 @@ function renderBoard() {
         line.append(tag);
       }
       chip.append(name, line);
+      if (!p.out) {
+        const next = document.createElement("span");
+        next.textContent = `Next: square ${p.target}`;
+        chip.append(next);
+      }
       return chip;
     }),
   );

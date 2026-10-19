@@ -141,10 +141,10 @@ await session("", async (b, ev) => {
   await ev(`[...document.querySelectorAll('.chip')].find(c => c.textContent.startsWith('1')).click()`);
   await ev(`document.querySelector('#setup .big').click()`);
   await sleep(400);
-  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("♥5"), "scoreboard shows 5 hearts");
+  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("5 lives"), "scoreboard shows 5 lives");
   await badThrow(b, ev);
   await idle(ev);
-  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("♥4"), "a failed turn costs a heart (♥4)");
+  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("4 lives"), "a failed turn costs a life (4 lives)");
   check((await ev(`__suwe.lives.lives`)) === 4, "your saved hearts dropped too");
   for (let i = 0; i < 4; i++) {
     await badThrow(b, ev);
@@ -348,7 +348,7 @@ await session("", async (b, ev) => {
   await idle(ev);
   await sleep(300);
   check((await ev(`JSON.stringify(__suwe.game.owners[8])`)) === '"a"', "square 9 now belongs to Ada");
-  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("⌂1"), "scoreboard shows 1 house");
+  check((await ev(`document.querySelector('.chip-p').textContent`)).includes("1 house"), "scoreboard shows 1 house");
   await b.shot("shots/h2-house-on-court.png");
 });
 

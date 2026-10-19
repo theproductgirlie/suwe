@@ -176,8 +176,11 @@ body:not([data-mode="play"]) #stage {
   white-space: nowrap;
 }
 .chip-p span {
+  display: block;
+  overflow: hidden;
   font-size: 11px;
   font-weight: 700;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .chip-p .ai {
