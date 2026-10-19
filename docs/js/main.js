@@ -761,6 +761,7 @@ async function submitScore(g, result, elapsedMs) {
   // Exactly the stats named in startng.json, each a whole number.
   const reply = await saveScore({
     houses: whole(human.houses.length),
+    level: whole(cpu.ai === "hard" ? 3 : 2), // 2 = Medium, 3 = Hard (Easy never counts)
     accuracy: whole(accuracy(human)),
     mistakes: whole(human.stats.mistakes),
     seconds: whole(elapsedMs / 1000),
@@ -791,15 +792,21 @@ function fillPlaceholders(list) {
   ["This could be you", "Open", "Open", "Open", "Open"].forEach((n, i) => list.append(lbRow(i === 0 ? "first" : "open", i + 1, i === 0 ? "You?" : "", n, "", "–")));
 }
 
+// The board keeps each player's single best run, ranked by houses and then by computer level, so a
+// player shows on the tab of the level they set that best run on.
+let lbLevel = 2; // 2 = Medium, 3 = Hard
+const LB_NAME = { 2: "Medium", 3: "Hard" };
+
 async function showLeaderboard() {
   const empty = $("lb-empty");
   const list = $("lb-list");
   const status = $("lb-status");
+  for (const b of document.querySelectorAll("#lb-tabs .chip")) b.classList.toggle("on", Number(b.dataset.level) === lbLevel);
   empty.hidden = false;
   $("lb-play").hidden = true;
   list.replaceChildren();
   status.textContent = "Loading...";
-  const reply = await loadLeaderboard(10);
+  const reply = await loadLeaderboard(50);
   if (document.body.dataset.mode !== "leaderboard") return;
   if (!reply?.ok) {
     status.textContent = onStartNg() ? "Couldn't reach start.ng. Try again in a moment." : "The leaderboard works on suwe.start.ng.";
@@ -807,22 +814,29 @@ async function showLeaderboard() {
     fillPlaceholders(list);
     return;
   }
-  const entries = reply.entries ?? [];
-  lbHasScores = entries.length > 0;
+  const all = reply.entries ?? [];
+  lbHasScores = all.length > 0;
   renderLbHint();
+  const entries = all.filter((e) => (e.stats?.level ?? 2) === lbLevel);
   if (!entries.length) {
-    status.textContent = "Beat the computer on Medium or Hard and your win lands here first. Nobody on start.ng has done it yet.";
+    status.textContent = `Beat the computer on ${LB_NAME[lbLevel]} and your win lands here first.${all.length ? "" : " Nobody on start.ng has done it yet."}`;
     $("lb-play").hidden = false;
     fillPlaceholders(list);
     return;
   }
   empty.hidden = true;
-  list.append(el("h4", "", "Best wins"));
-  entries.forEach((e, i) => {
+  list.append(el("h4", "", `Best wins on ${LB_NAME[lbLevel]}`));
+  entries.slice(0, 10).forEach((e, i) => {
     const st = e.stats ?? {};
     const initials = String(e.name ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
-    const row = lbRow(`${i === 0 ? "first" : ""}${me.id != null && e.player_id === me.id ? " me" : ""}`, e.rank, initials, e.name, `${st.accuracy ?? 0}% accuracy · ${st.mistakes ?? 0} mistakes · ${fmt((st.seconds ?? 0) * 1000)}`, plural(st.houses ?? e.score ?? 0, "house"));
+    const row = lbRow(`${i === 0 ? "first" : ""}${me.id != null && e.player_id === me.id ? " me" : ""}`, i + 1, initials, e.name, `${st.accuracy ?? 0}% accuracy · ${st.mistakes ?? 0} mistakes · ${fmt((st.seconds ?? 0) * 1000)}`, plural(st.houses ?? e.score ?? 0, "house"));
     list.append(row);
+  });
+}
+for (const b of document.querySelectorAll("#lb-tabs .chip")) {
+  b.addEventListener("click", () => {
+    lbLevel = Number(b.dataset.level);
+    showLeaderboard();
   });
 }
 

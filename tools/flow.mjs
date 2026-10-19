@@ -619,8 +619,8 @@ await session("&signedin", async (b, ev) => {
   await ev(`window.__sent = []; __suwe.setTransport(async (msg) => {
     window.__sent.push(msg);
     if (msg.type === 'startng:leaderboard') return { ok: true, entries: [
-      { rank: 1, player_id: 7, name: 'Trini', score: 8, stats: { houses: 8, accuracy: 91, mistakes: 3, seconds: 400 } },
-      { rank: 2, player_id: 42, name: 'Abimbola', score: 6, stats: { houses: 6, accuracy: 80, mistakes: 5, seconds: 521 } },
+      { rank: 1, player_id: 7, name: 'Trini', score: 8, stats: { houses: 8, level: 2, accuracy: 91, mistakes: 3, seconds: 400 } },
+      { rank: 2, player_id: 42, name: 'Abimbola', score: 6, stats: { houses: 6, level: 2, accuracy: 80, mistakes: 5, seconds: 521 } },
     ] };
     if (msg.type === 'startng:score') return { ok: true, result: { best: msg.stats.houses, improved: true, rank: 2, stats: msg.stats } };
     return null;
@@ -631,6 +631,11 @@ await session("&signedin", async (b, ev) => {
   check((await ev(`document.querySelector('.lb-row').textContent`)).includes("Trini") && (await ev(`document.querySelector('.lb-row').textContent`)).includes("91%"), "with houses, accuracy and name");
   check((await ev(`document.querySelectorAll('.lb-row.me').length`)) === 1 && (await ev(`document.querySelector('.lb-row.me').textContent`)).includes("Abimbola"), "my own row is highlighted");
   check((await ev(`document.querySelector('.lb-row.me').textContent`)).includes("8:41"), "match time is shown as m:ss");
+  await ev(`document.querySelector('#lb-tabs [data-level="3"]').click()`);
+  await sleep(300);
+  check((await ev(`document.querySelectorAll('.lb-row.first, .lb-row.open').length`)) > 0 && (await ev(`document.getElementById('lb-status').textContent`)).includes("Hard"), "the Hard tab only lists Hard wins (none yet)");
+  await ev(`document.querySelector('#lb-tabs [data-level="2"]').click()`);
+  await sleep(300);
   await ev(`window.__sent.length = 0`);
   // Finish a match against a Hard computer: 7 houses v 4, last square decides.
   const finish = async (level, expectText) => {
@@ -668,8 +673,9 @@ await session("&signedin", async (b, ev) => {
   const scores = JSON.parse(sent);
   check(scores.length === 1, "a finished match vs Hard submits one score");
   const st = scores[0].stats;
-  check(JSON.stringify(Object.keys(st)) === JSON.stringify(["houses", "accuracy", "mistakes", "seconds"]), "it sends exactly the four stats");
+  check(JSON.stringify(Object.keys(st)) === JSON.stringify(["houses", "level", "accuracy", "mistakes", "seconds"]), "it sends exactly the five stats");
   check(Object.values(st).every((v) => Number.isInteger(v) && v >= 0 && v <= 1e9), "each a whole number in range");
+  check(st.level === 3, "a win against Hard is sent as level 3");
   check(st.houses === 8 && st.mistakes === 3, `with the right values (houses ${st.houses}, mistakes ${st.mistakes})`);
   check(msg.includes("New best") && msg.includes("#2"), `results show the rank ("${msg}")`);
   await ev(`window.__sent.length = 0`);

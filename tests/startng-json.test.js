@@ -19,7 +19,7 @@ test("startng.json follows start.ng's leaderboard rules", () => {
 
 test("the game sends exactly the stats startng.json names", () => {
   const keys = cfg.leaderboard.stats.map((s) => s.key);
-  assert.deepEqual(keys, ["houses", "accuracy", "mistakes", "seconds"]);
+  assert.deepEqual(keys, ["houses", "level", "accuracy", "mistakes", "seconds"]);
   const call = main.slice(main.indexOf("await saveScore({"), main.indexOf("});", main.indexOf("await saveScore({")));
   for (const k of keys) assert.ok(call.includes(`${k}:`), `main.js sends ${k}`);
   assert.equal((call.match(/whole\(/g) ?? []).length, keys.length, "every value goes through whole()");

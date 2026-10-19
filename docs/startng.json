@@ -7,6 +7,11 @@
         "order": "highest"
       },
       {
+        "key": "level",
+        "label": "Computer level",
+        "order": "highest"
+      },
+      {
         "key": "accuracy",
         "label": "Accuracy %",
         "order": "highest"

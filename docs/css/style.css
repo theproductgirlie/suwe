@@ -1493,6 +1493,25 @@ tr.win td {
 }
 
 /* ---- leaderboard ---- */
+.lb-tabs {
+  width: 100%;
+  max-width: 1100px;
+  margin-bottom: 18px;
+}
+.lb-tabs .chip {
+  flex-direction: row;
+  gap: 8px;
+}
+.lb-tabs .chip b::after {
+  content: none;
+}
+.lb-tabs .chip span {
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+.lb-tabs .chip.on span {
+  color: var(--card);
+}
 .lb-layout {
   display: grid;
   width: 100%;
