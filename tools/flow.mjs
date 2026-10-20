@@ -135,10 +135,10 @@ await session("", async (b, ev) => {
 
 // ---- 4. Lives ----
 await session("", async (b, ev) => {
-  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("5 lives"), "home shows 5 lives");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("5 of 5 lives"), "home shows 5 of 5 lives");
   for (let i = 0; i < 5; i++) await ev(`__suwe.spendLife()`);
   await sleep(1200);
-  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("0 lives"), "lives all gone after 5 losses");
+  check((await ev(`document.getElementById('profile-lives').textContent`)).includes("0 of 5 lives"), "lives all gone after 5 losses");
   const note = await ev(`document.getElementById('profile-lives').textContent`);
   check(/\+1 in (29:\d\d|30:00)$/.test(note), `countdown shown (${note})`);
   await ev(`document.getElementById('play').click()`);

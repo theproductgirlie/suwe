@@ -28,7 +28,7 @@
       <a id="player-sign-in" class="signin" hidden>Sign in</a>
     </div>
     <button id="open-settings" class="round-btn settings-btn" type="button" aria-label="Settings">
-      <span data-icon="sliders" data-size="24"></span>
+      <span data-icon="sliders" data-size="24"></span><span class="btn-text">Settings</span>
     </button>
 
     <!-- In a match -->
@@ -99,27 +99,26 @@
     <!-- Screens -->
     <section id="menu" class="screen">
       <div class="menu-copy">
-        <div class="logo" role="img" aria-label="SUWE">
-          <span>S</span><span class="on">U<i class="stone"></i></span><span>W</span><span>E</span>
-        </div>
-        <p class="tagline">The Nigerian hopping game</p>
+        <h1 class="wordmark">SUWE</h1>
+        <p class="tagline">The Nigerian hopping game<span class="wide-only">. Throw the stone, hop the court, build your house.</span></p>
       </div>
       <div class="menu-actions">
         <button id="play" class="big go" type="button">Play</button>
         <div id="continue-card" class="card saved" hidden>
+          <span class="saved-dots" id="saved-dots"></span>
           <div class="saved-text">
-            <span class="kicker">Unfinished match</span>
+            <span class="kicker">Saved match</span>
             <b id="saved-line"></b>
           </div>
           <button id="continue" class="ghost-btn" type="button">Resume</button>
         </div>
         <div class="tiles">
           <button id="open-howto" class="tile" type="button">
-            <span data-icon="book" data-size="26"></span><b>How to play</b>
+            <span class="tile-ico" data-icon="book" data-size="26"></span><span class="tile-text"><b>How to play</b><small>7 quick steps</small></span>
             <span class="new" id="howto-new">New</span>
           </button>
           <button id="open-lb" class="tile" type="button">
-            <span data-icon="trophy" data-size="26"></span><b>Leaderboard</b>
+            <span class="tile-ico" data-icon="trophy" data-size="26"></span><span class="tile-text"><b>Leaderboard</b><small id="lb-hint">Top spot is open</small></span>
           </button>
         </div>
       </div>

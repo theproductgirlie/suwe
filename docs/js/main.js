@@ -192,7 +192,7 @@ function renderLives(force) {
   lives = t;
   const next = msToNextLife(lives, now);
   const line = $("profile-lives");
-  line.replaceChildren(icon("heart", 15), document.createTextNode(`${lives.lives} ${lives.lives === 1 ? "life" : "lives"}${next ? ` · +1 in ${fmt(next)}` : ""}`));
+  line.replaceChildren(icon("heart", 15), document.createTextNode(`${lives.lives} of ${MAX_LIVES} lives${next ? ` · +1 in ${fmt(next)}` : ""}`));
 }
 setInterval(() => {
   renderLives();
@@ -265,7 +265,7 @@ function layoutScene() {
       scene.setLayout({ nearY: Math.max(H * 0.62, farY + 240), farY, cx: W / 2, maxCell: cap, pitch: 24 }, { ground: true });
     }
   } else if (m === "menu") {
-    if (isDesktop()) scene.setLayout({ nearY: H * 1.0, farY: H * 0.5, cx: W * 0.745, maxCell: Math.min(W * 0.17, H * 0.22), pitch: 30 }, { ground: false });
+    if (isDesktop()) scene.setLayout({ nearY: H * 0.99, farY: H * 0.43, cx: W * 0.775, maxCell: Math.min(W * 0.15, H * 0.3), pitch: 30 }, { ground: false });
     else scene.setLayout({ nearY: H * 0.62, farY: H * 0.37, cx: W * 0.45, maxCell: Math.min(W * 0.3, H * 0.2), pitch: 30 }, { ground: false });
   }
 }
@@ -286,10 +286,10 @@ function menuStage() {
   view.hero.style = normalizeStyle(me.style);
   view.hero.color = readTheme().p1;
   view.hero.sash = false;
-  view.hero.x = COLS + 0.95;
-  view.hero.y = 1.5;
+  view.hero.x = isDesktop() ? -0.9 : COLS + 0.95;
+  view.hero.y = isDesktop() ? 1.7 : 1.5;
   Object.assign(view.hero.pose, { back: true, oneLeg: true, lift: 0, bend: 0, tilt: 0, hold: false, facing: 1 });
-  view.stone = { x: 0.72, y: 0.4, h: 0 };
+  view.stone = { x: 1.15, y: 0.4, h: 0 };
   view.waiting = [];
   view.houses = [];
   view.hint = null;
@@ -796,6 +796,7 @@ function lbRow(cls, rank, face, name, sub, val) {
 
 // The board keeps each player's single best run, ranked by houses and then by computer level, so a
 // player shows on the tab of the level they set that best run on.
+let lbHasScores = null; // unknown until the board has been loaded once
 let lbLevel = 2; // 2 = Medium, 3 = Hard
 const LB_NAME = { 2: "Medium", 3: "Hard" };
 
@@ -822,6 +823,7 @@ async function showLeaderboard() {
     return;
   }
   const all = reply.entries ?? [];
+  lbHasScores = all.length > 0;
   const entries = all.filter((e) => (e.stats?.level ?? 2) === lbLevel);
   if (!entries.length) {
     status.textContent = isDesktop() ? "Beat Tunde on Medium or Hard to take the top spot." : `Beat Tunde on ${LB_NAME[lbLevel]} to take the top spot.`;
@@ -1104,6 +1106,7 @@ const tutorial = createTutorial($("howto"), {
 });
 
 function renderMenu() {
+  $("lb-hint").textContent = lbHasScores === false || lbHasScores === null ? "Top spot is open" : "See the best wins";
   const d = loadSave();
   $("continue-card").hidden = !d;
   $("continue").hidden = !d;
@@ -1111,7 +1114,14 @@ function renderMenu() {
     const g = d.game;
     const others = g.players.slice(1);
     const vs = others.length ? `You vs ${others.map((q) => q.name).join(", ")}` : "Solo practice";
-    $("saved-line").textContent = `${vs}, you're on square ${g.players[0].target}`;
+    $("saved-line").textContent = `${vs} · square ${g.players[0].target}`;
+    $("saved-dots").replaceChildren(
+      ...g.players.map((q) => {
+        const i = document.createElement("i");
+        i.style.background = q.color ?? "#999";
+        return i;
+      }),
+    );
   }
   $("howto-new").hidden = Boolean(store.get("suwe.seenTutorial"));
 }
